@@ -6,7 +6,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { assertShopAvailable } from "@/lib/shopify/connection";
 import { normalizeShopDomain } from "@/lib/shopify/domain";
-import { AppError } from "@/lib/shopify/errors";
+import { AppError, safeErrorResponse } from "@/lib/shopify/errors";
 import {
   buildAuthorizationUrl,
   generateOAuthState,
@@ -15,11 +15,21 @@ import {
 import { getServerEnv } from "@/lib/env";
 
 export async function POST(request: Request) {
+  const wantsJson = request.headers.get("accept")?.includes("application/json");
   try {
     const user = await requireUser();
     await enforceRateLimit(user.id, "shopify-install", 10, 600);
     const form = await request.formData();
-    const shop = normalizeShopDomain(String(form.get("shop") ?? ""));
+    let shop: string;
+    try {
+      shop = normalizeShopDomain(String(form.get("shop") ?? ""));
+    } catch {
+      throw new AppError(
+        "INVALID_SHOP",
+        "Enter a valid myshopify.com store domain",
+        400,
+      );
+    }
     await assertShopAvailable(shop, user.id);
 
     const state = generateOAuthState();
@@ -41,8 +51,16 @@ export async function POST(request: Request) {
         503,
       );
 
-    return NextResponse.redirect(buildAuthorizationUrl(shop, state), 303);
+    const authorizationUrl = buildAuthorizationUrl(shop, state);
+    if (wantsJson) {
+      return Response.json(
+        { authorizationUrl: authorizationUrl.toString() },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return NextResponse.redirect(authorizationUrl, 303);
   } catch (error) {
+    if (wantsJson) return safeErrorResponse(error);
     const code = error instanceof AppError ? error.code : "NETWORK_ERROR";
     const target = new URL("/connect", request.url);
     target.searchParams.set("error", code);

@@ -72,9 +72,9 @@ export function ConnectForm({ defaultShop }: { defaultShop?: string }) {
     };
   }, [router, waiting]);
 
-  function validate(event: FormEvent<HTMLFormElement>) {
+  async function validate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (waiting) {
-      event.preventDefault();
       return;
     }
 
@@ -87,7 +87,6 @@ export function ConnectForm({ defaultShop }: { defaultShop?: string }) {
 
       const popup = window.open("about:blank", POPUP_NAME, POPUP_FEATURES);
       if (!popup) {
-        event.preventDefault();
         setError("Allow popups for Aladdyn, then try again.");
         return;
       }
@@ -98,8 +97,37 @@ export function ConnectForm({ defaultShop }: { defaultShop?: string }) {
         '<p style="font:16px system-ui;padding:32px">Opening Shopify secure login…</p>';
       setError(null);
       setWaiting(true);
+
+      const form = new FormData();
+      form.set("shop", shop);
+      const response = await fetch("/api/shopify/install", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: form,
+      });
+      const body = (await response.json()) as {
+        authorizationUrl?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.authorizationUrl) {
+        throw new Error(
+          body.error?.message ?? "Could not start Shopify authorization",
+        );
+      }
+
+      const authorizationUrl = new URL(body.authorizationUrl);
+      if (
+        authorizationUrl.protocol !== "https:" ||
+        !authorizationUrl.hostname.endsWith(".myshopify.com") ||
+        authorizationUrl.pathname !== "/admin/oauth/authorize"
+      ) {
+        throw new Error("Shopify returned an invalid authorization address");
+      }
+      popup.location.replace(authorizationUrl.toString());
     } catch (reason) {
-      event.preventDefault();
+      popupRef.current?.close();
+      popupRef.current = null;
+      setWaiting(false);
       setError(
         reason instanceof Error
           ? reason.message
@@ -113,7 +141,6 @@ export function ConnectForm({ defaultShop }: { defaultShop?: string }) {
       className="panel p-6 sm:p-8"
       method="post"
       onSubmit={validate}
-      target={POPUP_NAME}
     >
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
         <ShieldCheck className="h-6 w-6" />
