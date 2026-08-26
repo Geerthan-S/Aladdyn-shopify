@@ -1,0 +1,1045 @@
+# Build the Complete Aladdyn Shopify Connector
+
+Build a production-ready standalone Next.js application from scratch in the currently opened folder.
+
+Do not stop after scaffolding or provide only sample code. Implement the application, database migrations, Shopify OAuth flow, data inspector, security controls, tests, documentation, and deployment configuration. Run all available validation checks before finishing.
+
+## 1. Product objective
+
+Create a public Aladdyn Shopify Connector with this complete journey:
+
+```text
+Tester opens public Aladdyn link
+→ Signs up or logs in
+→ Enters Shopify store domain
+→ Clicks Connect Shopify
+→ Redirected to Shopify authorization/install
+→ Approves requested access
+→ Returned to Aladdyn callback
+→ Connection and access token stored securely
+→ Shopify Admin GraphQL API 2026-07 verified
+→ Tester sees a complete Shopify Data Inspector
+→ Tester can paginate data, reconnect, or disconnect
+```
+
+This is a standalone application, not an embedded Shopify Admin application.
+
+## 2. Required technology
+
+Use:
+
+- Current stable Next.js with App Router and TypeScript
+- React Server Components where appropriate
+- Tailwind CSS for the interface
+- Supabase Auth for signup, login, logout, password recovery, and sessions
+- Supabase Postgres for application data
+- Zod or equivalent runtime validation
+- Shopify Admin GraphQL API version `2026-07`
+- Node.js runtime for routes using cryptography
+- Vitest or the project’s suitable unit-test runner
+- Playwright for critical end-to-end coverage if practical
+- Vercel-compatible deployment configuration
+
+Use current stable compatible package versions. Before implementation, verify the current official Shopify documentation for OAuth, HMAC calculation, API scopes, API version `2026-07`, privacy webhooks, token revocation, and protected customer data.
+
+Do not expose the Shopify access token, Shopify API secret, Supabase service-role key, or encryption key to browser code.
+
+## 3. Architecture
+
+Use this separation:
+
+```text
+Browser
+  ├── Supabase user authentication
+  ├── Connect-store form
+  └── Data Inspector UI
+          ↓
+Next.js server routes/actions
+  ├── Validate authenticated Aladdyn user
+  ├── Initiate Shopify OAuth
+  ├── Validate callback HMAC and state
+  ├── Encrypt/decrypt offline access token
+  ├── Call Shopify Admin GraphQL
+  ├── Normalize GraphQL errors
+  └── Process verified webhooks
+          ↓
+Supabase Postgres
+  ├── Connection metadata
+  ├── Encrypted token material
+  ├── Single-use OAuth states
+  └── Webhook idempotency records
+```
+
+Shopify GraphQL requests must only happen on the server.
+
+## 4. Suggested project structure
+
+Adapt this structure where needed, but keep responsibilities separated:
+
+```text
+app/
+  page.tsx
+  login/page.tsx
+  signup/page.tsx
+  forgot-password/page.tsx
+  reset-password/page.tsx
+  auth/callback/route.ts
+  connect/page.tsx
+  dashboard/page.tsx
+  dashboard/loading.tsx
+  dashboard/error.tsx
+
+  api/
+    shopify/
+      install/route.ts
+      callback/route.ts
+      connection/route.ts
+      disconnect/route.ts
+      reconnect/route.ts
+      verify/route.ts
+      data/[dataset]/route.ts
+      webhooks/route.ts
+
+components/
+  auth/
+  connect/
+  inspector/
+    inspector-shell.tsx
+    connection-summary.tsx
+    dataset-navigation.tsx
+    dataset-table.tsx
+    raw-json-viewer.tsx
+    pagination-controls.tsx
+    scope-status.tsx
+    protected-data-status.tsx
+    error-state.tsx
+    empty-state.tsx
+  ui/
+
+lib/
+  env.ts
+  supabase/
+    browser.ts
+    server.ts
+    admin.ts
+    middleware.ts
+  shopify/
+    constants.ts
+    domain.ts
+    oauth.ts
+    hmac.ts
+    encryption.ts
+    admin-graphql.ts
+    errors.ts
+    scopes.ts
+    datasets.ts
+    queries/
+      shop.ts
+      products.ts
+      variants.ts
+      collections.ts
+      inventory.ts
+      locations.ts
+      orders.ts
+      discounts.ts
+  auth/
+  logger.ts
+
+supabase/
+  migrations/
+    001_shopify_connector.sql
+
+tests/
+  unit/
+  integration/
+  e2e/
+
+.env.example
+README.md
+shopify.app.toml.example
+```
+
+Use the correct Supabase session-refresh mechanism for the installed Next.js version.
+
+## 5. Public and authenticated screens
+
+### Landing page
+
+Show:
+
+- Aladdyn branding
+- Concise explanation of the testing connector
+- “Create account” button
+- “Log in” button
+- Clear statement that Shopify credentials are never requested by Aladdyn
+
+### Authentication
+
+Implement:
+
+- Email/password signup
+- Login
+- Logout
+- Email verification callback
+- Forgot password
+- Reset password
+- Friendly Supabase error messages
+- Redirect authenticated users to `/connect` or `/dashboard`
+
+Do not place authentication secrets in local storage manually. Use Supabase’s supported secure session handling.
+
+### Connect screen
+
+Include:
+
+- Shopify store-domain input
+- Example: `mystore.myshopify.com`
+- “Connect Shopify” button
+- Explanation of requested read-only permissions
+- Validation errors
+- Existing connection summary if one exists
+
+Accept reasonable tester input such as:
+
+```text
+mystore
+mystore.myshopify.com
+https://mystore.myshopify.com/
+```
+
+Normalize it to:
+
+```text
+mystore.myshopify.com
+```
+
+Reject custom storefront domains, paths, query strings, invalid characters, deceptive suffixes, and non-`myshopify.com` hosts.
+
+## 6. Supabase database design
+
+Create a committed SQL migration.
+
+### `shopify_connections`
+
+Recommended columns:
+
+```text
+id uuid primary key
+user_id uuid not null references auth.users(id)
+shop_domain text not null
+shopify_shop_id text
+shop_name text
+status text
+api_version text
+granted_scopes text[]
+installed_at timestamptz
+verified_at timestamptz
+disconnected_at timestamptz
+last_error_code text
+last_error_message text
+created_at timestamptz
+updated_at timestamptz
+```
+
+Constraints:
+
+- Unique active ownership for a Shopify store
+- A store must not silently become connected to another Aladdyn user
+- Validate allowed connection statuses
+- Normalize domain before writing
+
+### `shopify_connection_secrets`
+
+Recommended columns:
+
+```text
+connection_id uuid primary key
+token_ciphertext text not null
+token_iv text not null
+token_auth_tag text not null
+key_version integer not null
+created_at timestamptz
+updated_at timestamptz
+```
+
+This table must never be readable through the browser’s Supabase client.
+
+Encrypt access tokens with AES-256-GCM using a 32-byte environment-provided key. Use a fresh random IV for every encryption. Never hash the access token because it must be recoverable for Shopify requests.
+
+### `shopify_oauth_states`
+
+Recommended columns:
+
+```text
+state_hash text primary key
+user_id uuid not null
+shop_domain text not null
+redirect_path text
+expires_at timestamptz not null
+used_at timestamptz
+created_at timestamptz
+```
+
+Store a hash of the OAuth state rather than the plaintext state. State values must:
+
+- Be generated with a cryptographically secure random generator
+- Expire quickly, preferably in 10 minutes
+- Be single-use
+- Be tied to the user and normalized shop domain
+- Be consumed atomically during callback processing
+
+### `shopify_webhook_receipts`
+
+Store only information needed for idempotency and diagnostics:
+
+```text
+webhook_id text primary key
+topic text not null
+shop_domain text
+processed_at timestamptz
+status text
+error_message text
+```
+
+Avoid permanently storing protected customer payloads.
+
+### Row-level security
+
+Enable RLS on all relevant tables.
+
+Users may read only their own non-secret connection metadata. Token material, OAuth states, and webhook receipts must only be accessed by trusted server code.
+
+Never expose the Supabase service-role key in a `NEXT_PUBLIC_` variable.
+
+## 7. Shopify OAuth installation flow
+
+### Install route
+
+`GET /api/shopify/install?shop=...`
+
+The route must:
+
+1. Require an authenticated Supabase user.
+2. Normalize and validate the Shopify domain.
+3. Check whether the shop is already owned by another user.
+4. Generate a secure OAuth state.
+5. Store only its hash with user, shop, and expiry.
+6. Construct the Shopify authorization URL.
+7. Redirect to Shopify.
+
+Use an offline access token. Do not request a per-user online token.
+
+Requested baseline scopes:
+
+```text
+read_products
+read_inventory
+read_locations
+read_orders
+read_discounts
+```
+
+Keep the scope list in one server-side constant.
+
+Do not request write scopes.
+
+### Callback route
+
+`GET /api/shopify/callback`
+
+Process in this order:
+
+1. Read the original callback query parameters.
+2. Validate the `shop` domain.
+3. Verify Shopify’s callback HMAC with timing-safe comparison.
+4. Validate callback timestamp freshness if Shopify supplies one.
+5. Hash and locate the OAuth state.
+6. Confirm that it is unexpired, unused, and belongs to the expected shop.
+7. Atomically consume the state to prevent replay.
+8. Exchange the authorization code for an offline access token.
+9. Fetch the actual granted scopes.
+10. Call Admin GraphQL API `2026-07`.
+11. Fetch basic shop identity.
+12. Encrypt the access token.
+13. Store connection metadata and encrypted token in one safe transaction where possible.
+14. Redirect to `/dashboard?connected=1`.
+
+Never include an access token in a URL, redirect, error message, client response, analytics event, or log.
+
+If the callback fails, redirect to a safe UI error page containing a non-sensitive error code.
+
+### HMAC requirements
+
+Implement HMAC exactly according to current official Shopify documentation:
+
+- Exclude the `hmac` parameter
+- Preserve the required Shopify parameter encoding rules
+- Build the canonical message correctly
+- Sign with the Shopify API secret using SHA-256
+- Compare decoded byte buffers with `timingSafeEqual`
+- Reject missing, malformed, or mismatched HMAC values
+
+Add unit tests using fixed valid and tampered callback examples.
+
+## 8. Connection verification
+
+After installation, verify:
+
+- Token can call `2026-07`
+- Returned Shopify shop matches the expected normalized domain
+- Shop identity can be retrieved
+- Granted scopes are recorded
+- GraphQL response has no authentication error
+
+Persist:
+
+- Shopify shop ID
+- Shop name
+- Canonical `.myshopify.com` domain
+- Granted scopes
+- API version
+- Installation time
+- Verification time
+- Connected status
+
+The dashboard must distinguish:
+
+```text
+connected
+verification_failed
+access_revoked
+uninstalled
+disconnected
+needs_reauthorization
+```
+
+## 9. Shopify GraphQL server client
+
+Create one reusable server-only GraphQL client.
+
+It must:
+
+- Decrypt the token only immediately before use
+- Call:
+
+```text
+https://{shop}/admin/api/2026-07/graphql.json
+```
+
+- Send the token through `X-Shopify-Access-Token`
+- Set JSON content type
+- Apply a request timeout
+- Handle non-2xx responses
+- Handle top-level GraphQL errors
+- Handle nested `userErrors`
+- Capture `extensions.cost.throttleStatus`
+- Return typed, normalized results
+- Never return request headers or access tokens to the client
+- Never log raw GraphQL variables if they might contain personal data
+
+Create structured error codes such as:
+
+```text
+AUTH_REQUIRED
+CONNECTION_NOT_FOUND
+SHOP_ACCESS_DENIED
+SCOPE_MISSING
+APPROVAL_REQUIRED
+TOKEN_REVOKED
+SHOPIFY_THROTTLED
+SHOPIFY_GRAPHQL_ERROR
+INVALID_CURSOR
+NETWORK_ERROR
+```
+
+## 10. Shopify Data Inspector
+
+Create a dashboard with separate datasets:
+
+- Shop details
+- Granted scopes
+- Products
+- Product variants
+- Collections
+- Inventory
+- Locations
+- Orders
+- Discounts
+- Protected customer data status
+
+Every dataset should have:
+
+- Human-readable table/card view
+- Raw JSON view
+- Loading state
+- Empty state
+- Error state
+- Scope status
+- Last successful fetch time
+- Cursor-based next/previous navigation where supported
+- Copy JSON button
+- Shopify GraphQL cost/throttle information
+- A safe retry button
+
+Do not load every record into one browser response.
+
+### Dataset endpoints
+
+Use an allowlisted dataset route:
+
+```text
+GET /api/shopify/data/{dataset}?after=...&before=...&limit=...
+```
+
+Rules:
+
+- Authenticate the Aladdyn user
+- Confirm they own the connection
+- Allow only known dataset names
+- Validate cursors and page sizes
+- Use a maximum page size such as 50
+- Do not let users submit arbitrary GraphQL
+- Return a consistent pagination envelope
+
+Suggested response:
+
+```json
+{
+  "dataset": "products",
+  "items": [],
+  "pageInfo": {
+    "hasNextPage": false,
+    "hasPreviousPage": false,
+    "startCursor": null,
+    "endCursor": null
+  },
+  "access": {
+    "status": "available",
+    "requiredScopes": ["read_products"],
+    "grantedScopes": ["read_products"]
+  },
+  "graphQL": {
+    "requestedCost": 0,
+    "actualCost": 0,
+    "currentlyAvailable": 0,
+    "restoreRate": 0
+  }
+}
+```
+
+### Dataset requirements
+
+#### Shop details
+
+Show non-sensitive shop information such as:
+
+- Shopify shop ID
+- Store name
+- Canonical domain
+- Storefront domain if available
+- Contact email only if currently permitted
+- Currency
+- Billing country
+- Time zone
+- Plan display name when accessible
+- Installation and verification dates
+
+#### Granted scopes
+
+Retrieve actual granted access rather than assuming configured scopes were granted.
+
+Show:
+
+- Configured scopes
+- Granted scopes
+- Missing scopes
+- Extra scopes
+- Reauthorization required status
+
+#### Products
+
+Show:
+
+- ID
+- Title
+- Handle
+- Status
+- Vendor
+- Product type
+- Tags
+- Created and updated times
+- Publication-related status where authorized
+- Featured image URL
+- Total or representative inventory information
+
+#### Variants
+
+Use a separately paginated variants dataset rather than relying only on a small nested variants list.
+
+Show:
+
+- Variant ID
+- Product reference
+- Title
+- SKU
+- Barcode where accessible
+- Price
+- Compare-at price
+- Inventory quantity
+- Inventory item reference
+- Selected options
+
+#### Collections
+
+Show manual and smart collections exposed by the current GraphQL schema:
+
+- ID
+- Title
+- Handle
+- Description summary
+- Updated time
+- Collection type when determinable
+- Product count where available
+
+#### Inventory
+
+Show:
+
+- Inventory item
+- SKU
+- Tracked status
+- Variant/product reference
+- Inventory levels
+- Location
+- Available/on-hand quantities supported by API `2026-07`
+
+Verify exact inventory quantity names against the `2026-07` schema.
+
+#### Locations
+
+Show:
+
+- Location ID
+- Name
+- Active status
+- Fulfillment support
+- Address summary where allowed
+- Legacy resource ID where useful
+
+#### Orders
+
+Use `read_orders`.
+
+Show safe operational fields:
+
+- Order ID
+- Name/number
+- Creation time
+- Display financial status
+- Display fulfillment status
+- Currency
+- Current total
+- Item count
+- Test-order status
+- Cancellation status
+
+Do not assume full historical access. Explain that `read_orders` normally has a historical window and that expanded historical access requires Shopify approval and `read_all_orders`.
+
+Avoid requesting customer name, email, phone, addresses, or other protected fields in the baseline order query.
+
+#### Discounts
+
+Support the applicable `2026-07` GraphQL discount connections:
+
+- Code discounts
+- Automatic discounts
+- Status
+- Title
+- Start/end dates
+- Usage-related information when accessible
+- Discount class/type
+- A concise summary of the discount value
+
+Handle GraphQL unions with explicit fragments.
+
+## 11. Protected customer data
+
+Create a dedicated “Protected data access” panel.
+
+It must clearly distinguish:
+
+```text
+Not requested
+Scope missing
+Shopify approval required
+Approved and available
+Field restricted
+```
+
+Baseline installation should not request customer-data scopes solely to make the inspector look complete.
+
+Explain in the UI:
+
+- Customer profile fields require appropriate customer scope and protected-customer-data approval.
+- Older order history requires `read_all_orders` and approval.
+- An installed store may need to reconnect after scopes are added.
+- Access is controlled by Shopify, not by an Aladdyn UI toggle.
+
+The inspector must remain usable when protected data is blocked.
+
+Do not fake, mask as “loading,” or silently omit restricted datasets. Display the reason and recommended administrative action.
+
+## 12. Reconnect flow
+
+Reconnect must:
+
+- Require authentication
+- Use the existing normalized shop domain
+- Generate a new state
+- Repeat Shopify authorization
+- Replace the encrypted token only after successful verification
+- Update actual granted scopes
+- Preserve the previous valid connection if the new attempt fails
+- Mark missing newly configured scopes as requiring reauthorization
+
+## 13. Disconnect flow
+
+Add a confirmation dialog.
+
+On disconnect:
+
+1. Require the authenticated owner.
+2. Attempt to revoke Shopify API access using the currently documented Shopify method.
+3. If revocation succeeds, remove encrypted token material.
+4. Mark metadata as disconnected.
+5. If Shopify already revoked the token, still complete local cleanup.
+6. If Shopify is temporarily unreachable, show a clear error and offer safe retry.
+7. Never expose the token during the process.
+
+Treat uninstall and disconnect as different events but converge them to a non-connected state.
+
+## 14. Webhooks
+
+Implement a raw-body webhook endpoint.
+
+Verify `X-Shopify-Hmac-Sha256` before parsing or processing the payload. Use timing-safe comparison.
+
+Support at minimum:
+
+```text
+app/uninstalled
+customers/data_request
+customers/redact
+shop/redact
+```
+
+Requirements:
+
+- Verify HMAC from the unmodified request body
+- Read and validate Shopify topic, shop domain, and webhook ID headers
+- Use webhook ID for idempotency
+- Return quickly
+- Do not log entire privacy payloads
+- Mark connection uninstalled for `app/uninstalled`
+- Implement compliant handling for mandatory privacy topics
+- Delete or anonymize retained shop data when required
+- Remove encrypted tokens when installation is gone
+- Document any delayed processing design
+
+Register/configure the mandatory compliance webhooks in the Shopify app configuration, not only at runtime.
+
+## 15. Security requirements
+
+The implementation is incomplete unless all are true:
+
+- Access tokens exist only in encrypted database storage and server memory
+- Token encryption uses AES-256-GCM
+- Every connection/data action checks authenticated ownership
+- OAuth state is random, expiring, shop-bound, user-bound, and single-use
+- Callback HMAC is verified before code exchange
+- Webhook HMAC is verified against raw body
+- Domain validation prevents arbitrary-host requests and SSRF
+- Shopify API URLs can only use validated `.myshopify.com` domains
+- Sensitive environment variables are never client-exposed
+- Logs redact tokens, authorization codes, HMACs, cookies, and personal data
+- Errors sent to browsers contain safe codes, not secret details
+- RLS prevents cross-user connection access
+- No arbitrary GraphQL pass-through endpoint exists
+- Rate limiting protects OAuth initiation and data endpoints
+- State-changing routes use POST where appropriate
+- Security headers are configured
+- Production cookies are secure
+- React output is not used to render untrusted raw HTML
+- Disconnect requires explicit confirmation
+- Connection ownership conflicts fail closed
+
+## 16. Shopify app dashboard configuration
+
+Prepare the app for these values.
+
+| Field | Value |
+|---|---|
+| App name | `Aladdyn Shopify Connector` |
+| App URL | `https://YOUR-PRODUCTION-DOMAIN` |
+| Embedded in Shopify Admin | Off |
+| Preferences URL | `https://YOUR-PRODUCTION-DOMAIN/dashboard` or blank |
+| Webhooks API version | `2026-07` |
+| Required scopes | `read_products,read_inventory,read_locations,read_orders,read_discounts` |
+| Optional scopes | Blank initially |
+| Legacy/manual install flow | On if required for this direct authorization-code implementation |
+| Allowed redirect URL | `https://YOUR-PRODUCTION-DOMAIN/api/shopify/callback` |
+| Shopify POS | Off |
+| App proxy | Blank |
+
+Also configure privacy/compliance webhook delivery to:
+
+```text
+https://YOUR-PRODUCTION-DOMAIN/api/shopify/webhooks
+```
+
+Before finalizing these values, confirm current Shopify terminology and whether the selected app type still labels direct OAuth as “legacy install flow.”
+
+Do not use placeholder URLs in the released Shopify app version.
+
+## 17. Environment variables
+
+Create `.env.example` containing names and safe comments, never real credentials:
+
+```dotenv
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+
+SHOPIFY_API_KEY=
+SHOPIFY_API_SECRET=
+SHOPIFY_API_VERSION=2026-07
+SHOPIFY_SCOPES=read_products,read_inventory,read_locations,read_orders,read_discounts
+
+# Base64-encoded 32-byte random value.
+SHOPIFY_TOKEN_ENCRYPTION_KEY=
+SHOPIFY_TOKEN_ENCRYPTION_KEY_VERSION=1
+
+# Optional operational settings.
+SHOPIFY_REQUEST_TIMEOUT_MS=15000
+DATA_INSPECTOR_PAGE_SIZE=25
+```
+
+Validate environment variables at server startup using a schema.
+
+Any variable starting with `NEXT_PUBLIC_` must be safe for browser exposure.
+
+Include a documented command for securely generating the 32-byte encryption key. Never print or commit the generated production value.
+
+## 18. Vercel and Supabase deployment guide
+
+Document this exact order:
+
+1. Create the Supabase project.
+2. Apply committed SQL migrations.
+3. Configure Supabase Site URL.
+4. Add local and production auth redirect URLs.
+5. Create/import the project in Vercel.
+6. Add all environment variables.
+7. Deploy to a stable production hostname.
+8. Update `NEXT_PUBLIC_APP_URL`.
+9. Configure Shopify App URL.
+10. Configure exact Shopify callback URL.
+11. Configure webhook URL and API version.
+12. Release the Shopify app configuration/version.
+13. Create a fresh tester account.
+14. Install on a Shopify development/test store.
+15. Verify every inspector dataset.
+16. Confirm reconnect, disconnect, and uninstall behavior.
+
+Use a stable production URL for OAuth. Do not rely on changing Vercel preview URLs for the released callback.
+
+For local Shopify OAuth testing, document an HTTPS tunnel and explain that its exact callback must be temporarily allowlisted.
+
+## 19. Error handling and UX
+
+Provide useful UI messages for:
+
+- Invalid shop domain
+- User not authenticated
+- Store already linked to another account
+- OAuth cancelled
+- Expired state
+- Replayed state
+- HMAC mismatch
+- Code exchange failure
+- Token revoked
+- Missing scope
+- Shopify approval required
+- GraphQL throttling
+- Shopify temporary outage
+- Empty store
+- No orders in accessible historical range
+- Supabase unavailable
+- Disconnect partially failed
+
+Do not display raw stack traces.
+
+Generate a safe diagnostic/request ID so server logs can be correlated with UI errors.
+
+## 20. Tests
+
+### Unit tests
+
+Cover:
+
+- Domain normalization
+- Rejection of malicious/non-Shopify domains
+- OAuth URL construction
+- OAuth state expiry and replay
+- Callback HMAC validation
+- Webhook raw-body HMAC validation
+- AES-256-GCM encryption/decryption
+- Tampered ciphertext rejection
+- Scope comparison
+- Dataset allowlisting
+- Cursor and page-size validation
+- Shopify GraphQL error normalization
+- Secret redaction
+
+### Integration tests
+
+Cover:
+
+- Authenticated install initiation
+- Unauthenticated install rejection
+- Successful callback with mocked Shopify exchange
+- Invalid HMAC rejection
+- Expired/replayed state rejection
+- Connection ownership conflict
+- Successful connection verification
+- Encrypted token persistence
+- Cross-user data access rejection
+- Dataset pagination
+- Missing-scope response
+- Reconnect behavior
+- Disconnect cleanup
+- Duplicate webhook idempotency
+- Uninstall webhook state transition
+
+### End-to-end/manual acceptance
+
+Verify against a Shopify development store:
+
+```text
+signup
+login
+email verification
+connect
+approve installation
+callback
+shop details
+scopes
+products
+variants
+collections
+inventory
+locations
+orders
+discounts
+protected-data explanations
+pagination
+refresh
+logout/login persistence
+reconnect
+disconnect
+uninstall webhook
+mobile layout
+```
+
+## 21. Validation before completion
+
+Run and report:
+
+```text
+dependency installation
+format check
+lint
+TypeScript check
+unit tests
+integration tests
+production build
+```
+
+Start the app locally and verify the actual bound URL.
+
+Inspect the browser for:
+
+- Runtime errors
+- Failed network calls
+- Horizontal overflow
+- Broken loading states
+- Secret leakage in HTML or API responses
+- Responsive desktop/mobile behavior
+
+If real Shopify or Supabase credentials are unavailable, complete everything that can be verified locally, use mocked integration tests, and clearly identify only the credential-dependent acceptance checks as pending.
+
+Do not claim live Shopify verification unless it actually occurred.
+
+## 22. Documentation deliverables
+
+The README must contain:
+
+- Product overview
+- Architecture
+- Local setup
+- Supabase setup
+- Migration command
+- Shopify dashboard configuration
+- Environment-variable reference
+- OAuth callback explanation
+- Required scopes and why each is needed
+- Protected customer data limitations
+- Webhook configuration
+- Vercel deployment
+- Local HTTPS tunnel setup
+- Testing commands
+- Troubleshooting
+- Security notes
+- Key rotation considerations
+- Known credential-dependent verification steps
+
+Also include:
+
+- `.env.example`
+- SQL migration
+- Shopify configuration example
+- Test fixtures without secrets
+- Final validation report
+
+## 23. Completion criteria
+
+Do not consider the project complete until:
+
+- A tester can create an Aladdyn account.
+- A logged-in tester can connect a valid Shopify store.
+- OAuth callback HMAC and state are validated.
+- Offline token is encrypted and server-only.
+- Connection is verified using Admin GraphQL API `2026-07`.
+- Every requested inspector dataset has a functional view.
+- Pagination works.
+- Missing scopes and approval restrictions are explicit.
+- Protected customer data is not accidentally queried or retained.
+- Reconnect works safely.
+- Disconnect removes usable token access.
+- Uninstall and privacy webhooks are verified.
+- Cross-user access is blocked.
+- Tests, type-check, lint, and production build pass.
+- Deployment instructions contain exact fields and placeholders.
+- No credentials, tokens, generated files, or temporary screenshots are committed.
+
+At the end, provide:
+
+1. A concise implementation summary.
+2. The absolute project path.
+3. The local URL if the server was started.
+4. Files created or materially changed.
+5. Validation results.
+6. Credential-dependent tests still pending.
+7. Exact next actions for Supabase, Shopify, and Vercel.

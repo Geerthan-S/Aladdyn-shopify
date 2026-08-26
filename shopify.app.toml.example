@@ -1,0 +1,31 @@
+# Copy to shopify.app.toml and replace every placeholder before deployment.
+client_id = "YOUR_SHOPIFY_CLIENT_ID"
+name = "Aladdyn Shopify Connector"
+handle = "aladdyn-shopify-connector"
+application_url = "https://YOUR-PRODUCTION-DOMAIN"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,read_inventory,read_locations,read_orders,read_discounts"
+# The standalone authorization-code tutorial sends scopes in the authorization URL.
+# Keep this true for this direct button-driven flow, then deploy the configuration.
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [
+  "https://YOUR-PRODUCTION-DOMAIN/api/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/api/shopify/webhooks"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/api/shopify/webhooks"
+
+[pos]
+embedded = false
