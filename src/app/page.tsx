@@ -1,8 +1,26 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight, Database, LockKeyhole, ShieldCheck } from "lucide-react";
 import { Brand } from "@/components/brand";
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  if (typeof params.shop === "string") {
+    const installParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (Array.isArray(value)) {
+        for (const item of value) installParams.append(key, item);
+      } else if (value !== undefined) {
+        installParams.set(key, value);
+      }
+    }
+    redirect(`/api/shopify/install?${installParams.toString()}`);
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#07111f] text-white">
       <div className="hero-grid absolute inset-0 opacity-40" />

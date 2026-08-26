@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { AppError } from "@/lib/shopify/errors";
+import { signOAuthParams } from "@/lib/shopify/hmac";
 
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
@@ -40,6 +41,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete process.env.SHOPIFY_APP_STORE_URL;
   mocks.requireUser.mockResolvedValue({ id: "user-1" });
   mocks.enforceRateLimit.mockResolvedValue(undefined);
   mocks.createAdminSupabase.mockReturnValue({
@@ -50,18 +52,13 @@ beforeEach(() => {
 });
 
 describe("security-sensitive route boundaries", () => {
-  it("redirects an unauthenticated install attempt without contacting Shopify", async () => {
+  it("redirects an unauthenticated App Store attempt without contacting Shopify", async () => {
     mocks.requireUser.mockRejectedValueOnce(
       new AppError("AUTH_REQUIRED", "Log in to continue", 401),
     );
-    const { POST } = await import("@/app/api/shopify/install/route");
-    const body = new FormData();
-    body.set("shop", "test");
-    const response = await POST(
-      new Request("https://aladdyn.example/api/shopify/install", {
-        method: "POST",
-        body,
-      }),
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request("https://aladdyn.example/api/shopify/install"),
     );
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe(
@@ -70,19 +67,38 @@ describe("security-sensitive route boundaries", () => {
     expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
   });
 
-  it("creates a server-side state record before redirecting to Shopify", async () => {
+  it("sends an authenticated merchant to the configured App Store listing", async () => {
+    process.env.SHOPIFY_APP_STORE_URL =
+      "https://apps.shopify.com/aladdyn-test-listing";
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request("https://aladdyn.example/api/shopify/install"),
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://apps.shopify.com/aladdyn-test-listing",
+    );
+    expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
+  });
+
+  it("creates a server-side state record for a signed Shopify launch", async () => {
     const insert = vi.fn().mockResolvedValue({ error: null });
     mocks.createAdminSupabase.mockReturnValue({
       from: vi.fn(() => ({ insert })),
     });
-    const { POST } = await import("@/app/api/shopify/install/route");
-    const body = new FormData();
-    body.set("shop", "https://test.myshopify.com/");
-    const response = await POST(
-      new Request("https://aladdyn.example/api/shopify/install", {
-        method: "POST",
-        body,
-      }),
+    const params = new URLSearchParams({
+      shop: "test.myshopify.com",
+      timestamp: String(Math.floor(Date.now() / 1000)),
+    });
+    params.set(
+      "hmac",
+      signOAuthParams(params, "0123456789abcdef0123456789abcdef"),
+    );
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request(
+        `https://aladdyn.example/api/shopify/install?${params.toString()}`,
+      ),
     );
     const location = new URL(response.headers.get("location")!);
     expect(response.status).toBe(303);
@@ -93,8 +109,23 @@ describe("security-sensitive route boundaries", () => {
         user_id: "user-1",
         shop_domain: "test.myshopify.com",
         state_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        redirect_path: "/dashboard?connected=1",
       }),
     );
+  });
+
+  it("rejects an unsigned Shopify launch before creating OAuth state", async () => {
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request(
+        "https://aladdyn.example/api/shopify/install?shop=test.myshopify.com&timestamp=1700000000",
+      ),
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://aladdyn.example/connect?error=OAUTH_INVALID",
+    );
+    expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
   });
 
   it("rejects a forged OAuth callback before token exchange", async () => {

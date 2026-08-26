@@ -6,7 +6,9 @@ The merchant journey is:
 
 ```text
 Create or log in to Aladdyn
-→ enter a permanent myshopify.com domain
+→ click Connect with Shopify
+→ Shopify handles login and store selection from the App Store listing
+→ Shopify sends the selected store to Aladdyn in a signed launch request
 → continue to Shopify's hosted authorization page
 → approve the app installation
 → return through a signed, replay-safe callback
@@ -133,7 +135,7 @@ No write scope is requested.
 
 ## OAuth callback behavior
 
-`POST /api/shopify/install` requires a valid Supabase user, validates store ownership, stores only a SHA-256 hash of a random OAuth state, and redirects to Shopify. The state expires after ten minutes and is atomically consumed once.
+`GET /api/shopify/install` has two safe entry modes. Without a `shop`, it sends an authenticated Aladdyn user to the configured Shopify App Store listing, where Shopify handles login and store selection. With a `shop`, it accepts only Shopify's fresh, HMAC-signed launch request, validates store ownership, stores only a SHA-256 hash of a random OAuth state, and redirects to Shopify's authorization screen. The state expires after ten minutes and is atomically consumed once.
 
 `GET /api/shopify/callback` performs these checks before persisting anything:
 
@@ -219,6 +221,7 @@ The `app/uninstalled` webhook converges the local connection to an uninstalled, 
 | `SUPABASE_SERVICE_ROLE_KEY`            | Server only  | Trusted database operations                             |
 | `SHOPIFY_API_KEY`                      | Server only  | Shopify client ID used to build authorization requests  |
 | `SHOPIFY_API_SECRET`                   | Server only  | OAuth and webhook HMAC verification, token exchange     |
+| `SHOPIFY_APP_STORE_URL`                | Server only  | Final `https://apps.shopify.com/...` listing URL        |
 | `SHOPIFY_API_VERSION`                  | Server only  | Must be `2026-07` for this release                      |
 | `SHOPIFY_SCOPES`                       | Server only  | Comma-separated read-only scope set                     |
 | `SHOPIFY_TOKEN_ENCRYPTION_KEY`         | Server only  | Base64-encoded 32-byte AES key                          |
@@ -275,9 +278,9 @@ Credential-dependent Shopify/Supabase acceptance checks cannot be completed with
 
 ## Troubleshooting
 
-### Invalid shop domain
+### App Store listing not configured
 
-Use the permanent `mystore.myshopify.com` domain. Custom storefront domains, paths, ports, query strings, credentials, and deceptive suffixes are rejected.
+Set `SHOPIFY_APP_STORE_URL` to Aladdyn's final `https://apps.shopify.com/...` listing URL. Public-app installation must start from Shopify's listing so Shopify can authenticate the merchant and select the store; Aladdyn does not ask the merchant to type a shop domain.
 
 ### OAuth callback rejected
 

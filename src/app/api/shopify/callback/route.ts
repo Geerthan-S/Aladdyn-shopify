@@ -21,7 +21,6 @@ function safeRedirect(code: string) {
 }
 
 export async function GET(request: Request) {
-  let popupFlow = false;
   try {
     const env = getServerEnv();
     const url = new URL(request.url);
@@ -68,7 +67,6 @@ export async function GET(request: Request) {
     }
 
     const userId = consumed[0].user_id as string;
-    popupFlow = consumed[0].redirect_path === "/shopify/complete";
     const token = await exchangeAuthorizationCode(shop, code);
     const verified = await shopifyGraphQLWithAccessToken<{
       shop: { id: string; name: string; myshopifyDomain: string };
@@ -136,24 +134,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const destination = popupFlow
-      ? "/shopify/complete"
-      : "/dashboard?connected=1";
     return NextResponse.redirect(
-      new URL(destination, env.NEXT_PUBLIC_APP_URL),
+      new URL("/dashboard?connected=1", env.NEXT_PUBLIC_APP_URL),
       303,
     );
   } catch (error) {
     const code = error instanceof AppError ? error.code : "NETWORK_ERROR";
     console.error("Shopify callback failed", { code });
-    if (popupFlow) {
-      const target = new URL(
-        "/shopify/complete",
-        getServerEnv().NEXT_PUBLIC_APP_URL,
-      );
-      target.searchParams.set("error", code);
-      return NextResponse.redirect(target, 303);
-    }
     return safeRedirect(code);
   }
 }

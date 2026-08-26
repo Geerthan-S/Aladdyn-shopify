@@ -11,6 +11,10 @@ const serverSchema = z
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     SHOPIFY_API_KEY: z.string().min(1),
     SHOPIFY_API_SECRET: z.string().min(16),
+    SHOPIFY_APP_STORE_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.url().optional(),
+    ),
     SHOPIFY_API_VERSION: z.literal("2026-07").default("2026-07"),
     SHOPIFY_SCOPES: z
       .string()
@@ -88,4 +92,21 @@ export function hasPublicSupabaseEnv() {
     (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
   );
+}
+
+export function getShopifyAppStoreUrl() {
+  const raw = process.env.SHOPIFY_APP_STORE_URL;
+  if (!raw) return null;
+
+  const url = new URL(raw);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "apps.shopify.com" ||
+    url.pathname === "/"
+  ) {
+    throw new Error(
+      "SHOPIFY_APP_STORE_URL must be an https://apps.shopify.com/... listing URL",
+    );
+  }
+  return url;
 }

@@ -8,7 +8,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 const messages: Record<string, string> = {
-  INVALID_SHOP: "Enter a valid .myshopify.com store domain.",
+  CONFIGURATION_REQUIRED:
+    "Aladdyn’s Shopify App Store listing is not configured yet.",
   OWNERSHIP_CONFLICT:
     "That Shopify store is already linked to another Aladdyn account.",
   OAUTH_INVALID:
@@ -55,7 +56,7 @@ export default async function ConnectPage({
             {messages[params.error] ?? messages.NETWORK_ERROR}
           </div>
         )}
-        <ConnectForm defaultShop={connection?.shop_domain} />
+        <ConnectForm />
         {connection && (
           <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             Previous connection:{" "}
