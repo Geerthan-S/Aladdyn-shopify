@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       state_hash: hashOAuthState(state),
       user_id: user.id,
       shop_domain: shop,
-      redirect_path: "/dashboard",
+      redirect_path: "/shopify/complete",
       expires_at: new Date(
         Date.now() + env.OAUTH_STATE_TTL_SECONDS * 1000,
       ).toISOString(),
