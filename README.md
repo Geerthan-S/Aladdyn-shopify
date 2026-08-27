@@ -7,7 +7,8 @@ The merchant journey is:
 ```text
 Create or log in to Aladdyn
 → click Connect with Shopify
-→ Shopify handles login and store selection from the App Store listing
+→ while the app is a draft, open the configured Shopify development store
+→ after publication, Shopify handles store selection from the App Store listing
 → Shopify sends the selected store to Aladdyn in a signed launch request
 → continue to Shopify's hosted authorization page
 → approve the app installation
@@ -135,7 +136,7 @@ No write scope is requested.
 
 ## OAuth callback behavior
 
-`GET /api/shopify/install` has two safe entry modes. Without a `shop`, it sends an authenticated Aladdyn user to the configured Shopify App Store listing, where Shopify handles login and store selection. With a `shop`, it accepts only Shopify's fresh, HMAC-signed launch request, validates store ownership, stores only a SHA-256 hash of a random OAuth state, and redirects to Shopify's authorization screen. The state expires after ten minutes and is atomically consumed once.
+`GET /api/shopify/install` has three safe entry modes. Without a `shop`, it sends an authenticated Aladdyn user to the configured Shopify App Store listing. While the app is still a draft and has no listing, it starts authorization only for the server-configured Shopify development store. With a `shop` in the request, it accepts only Shopify's fresh, HMAC-signed launch request. Every authorization path validates store ownership, stores only a SHA-256 hash of a random OAuth state, and redirects to Shopify's authorization screen. The state expires after ten minutes and is atomically consumed once.
 
 `GET /api/shopify/callback` performs these checks before persisting anything:
 
@@ -222,6 +223,7 @@ The `app/uninstalled` webhook converges the local connection to an uninstalled, 
 | `SHOPIFY_API_KEY`                      | Server only  | Shopify client ID used to build authorization requests  |
 | `SHOPIFY_API_SECRET`                   | Server only  | OAuth and webhook HMAC verification, token exchange     |
 | `SHOPIFY_APP_STORE_URL`                | Server only  | Final `https://apps.shopify.com/...` listing URL        |
+| `SHOPIFY_TEST_STORE_DOMAIN`            | Server only  | Draft-only development store `*.myshopify.com` domain   |
 | `SHOPIFY_API_VERSION`                  | Server only  | Must be `2026-07` for this release                      |
 | `SHOPIFY_SCOPES`                       | Server only  | Comma-separated read-only scope set                     |
 | `SHOPIFY_TOKEN_ENCRYPTION_KEY`         | Server only  | Base64-encoded 32-byte AES key                          |
@@ -278,7 +280,17 @@ Credential-dependent Shopify/Supabase acceptance checks cannot be completed with
 
 ## Troubleshooting
 
-### App Store listing not configured
+### Draft app testing
+
+You do not need a Shopify App Store URL while the app is a draft. Leave `SHOPIFY_APP_STORE_URL` blank and set:
+
+```env
+SHOPIFY_TEST_STORE_DOMAIN=your-development-store.myshopify.com
+```
+
+Use only a development store owned by your Shopify organization. In the Shopify Dev Dashboard, open the app and use **Install app** to select or create that store. After the public listing is approved, set `SHOPIFY_APP_STORE_URL` and remove `SHOPIFY_TEST_STORE_DOMAIN`; the listing automatically takes precedence if both are temporarily present.
+
+### App Store listing not configured after publication
 
 Set `SHOPIFY_APP_STORE_URL` to Aladdyn's final `https://apps.shopify.com/...` listing URL. Public-app installation must start from Shopify's listing so Shopify can authenticate the merchant and select the store; Aladdyn does not ask the merchant to type a shop domain.
 

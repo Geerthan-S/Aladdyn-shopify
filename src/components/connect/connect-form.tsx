@@ -13,9 +13,8 @@ export function ConnectForm() {
         Connect your Shopify store
       </h2>
       <p className="mt-2 leading-7 text-slate-500">
-        Continue to Shopify to log in, choose your store, and review Aladdyn’s
-        read-only permissions. Aladdyn never asks you for a store domain or
-        Shopify password.
+        Continue to Shopify to log in and review Aladdyn’s read-only
+        permissions. Aladdyn never asks for your Shopify password.
       </p>
       <button className="btn-primary mt-6 px-5 py-3" type="submit">
         Connect with Shopify <ArrowRight className="h-4 w-4" />

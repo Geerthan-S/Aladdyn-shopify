@@ -15,6 +15,10 @@ const serverSchema = z
       (value) => (value === "" ? undefined : value),
       z.url().optional(),
     ),
+    SHOPIFY_TEST_STORE_DOMAIN: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().optional(),
+    ),
     SHOPIFY_API_VERSION: z.literal("2026-07").default("2026-07"),
     SHOPIFY_SCOPES: z
       .string()
@@ -109,4 +113,8 @@ export function getShopifyAppStoreUrl() {
     );
   }
   return url;
+}
+
+export function getShopifyTestStoreDomain() {
+  return process.env.SHOPIFY_TEST_STORE_DOMAIN || null;
 }

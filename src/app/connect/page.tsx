@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 
 const messages: Record<string, string> = {
   CONFIGURATION_REQUIRED:
-    "Aladdyn’s Shopify App Store listing is not configured yet.",
+    "Draft testing needs a Shopify development store. Configure its myshopify.com domain and try again.",
+  INVALID_SHOP: "The configured Shopify development store domain is invalid.",
   OWNERSHIP_CONFLICT:
     "That Shopify store is already linked to another Aladdyn account.",
   OAUTH_INVALID:

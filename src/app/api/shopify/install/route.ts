@@ -14,7 +14,11 @@ import {
   hashOAuthState,
 } from "@/lib/shopify/oauth";
 import { OAUTH_CALLBACK_MAX_AGE_SECONDS } from "@/lib/shopify/constants";
-import { getServerEnv, getShopifyAppStoreUrl } from "@/lib/env";
+import {
+  getServerEnv,
+  getShopifyAppStoreUrl,
+  getShopifyTestStoreDomain,
+} from "@/lib/env";
 
 function errorRedirect(request: Request, error: unknown) {
   const code = error instanceof AppError ? error.code : "NETWORK_ERROR";
@@ -23,9 +27,12 @@ function errorRedirect(request: Request, error: unknown) {
   return NextResponse.redirect(target, 303);
 }
 
-async function beginAuthorization(request: Request, shopInput: string) {
+async function beginAuthorization(
+  request: Request,
+  user: { id: string },
+  shopInput: string,
+) {
   try {
-    const user = await requireUser();
     await enforceRateLimit(user.id, "shopify-install", 10, 600);
     let shop: string;
     try {
@@ -74,14 +81,20 @@ export async function GET(request: Request) {
     if (!shop) {
       await enforceRateLimit(user.id, "shopify-app-store", 20, 600);
       const listing = getShopifyAppStoreUrl();
-      if (!listing) {
-        throw new AppError(
-          "CONFIGURATION_REQUIRED",
-          "The Shopify App Store listing is not configured",
-          503,
-        );
+      if (listing) {
+        return NextResponse.redirect(listing, 303);
       }
-      return NextResponse.redirect(listing, 303);
+
+      const testShop = getShopifyTestStoreDomain();
+      if (testShop) {
+        return beginAuthorization(request, user, testShop);
+      }
+
+      throw new AppError(
+        "CONFIGURATION_REQUIRED",
+        "The Shopify App Store listing or test store is not configured",
+        503,
+      );
     }
 
     const env = getServerEnv();
@@ -100,7 +113,7 @@ export async function GET(request: Request) {
       throw new AppError("OAUTH_EXPIRED", "The Shopify request expired", 400);
     }
 
-    return beginAuthorization(request, shop);
+    return beginAuthorization(request, user, shop);
   } catch (error) {
     return errorRedirect(request, error);
   }

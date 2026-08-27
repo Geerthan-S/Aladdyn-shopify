@@ -42,6 +42,7 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.SHOPIFY_APP_STORE_URL;
+  delete process.env.SHOPIFY_TEST_STORE_DOMAIN;
   mocks.requireUser.mockResolvedValue({ id: "user-1" });
   mocks.enforceRateLimit.mockResolvedValue(undefined);
   mocks.createAdminSupabase.mockReturnValue({
@@ -75,6 +76,49 @@ describe("security-sensitive route boundaries", () => {
       new Request("https://aladdyn.example/api/shopify/install"),
     );
     expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://apps.shopify.com/aladdyn-test-listing",
+    );
+    expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
+  });
+
+  it("starts OAuth for the configured development store while the app is a draft", async () => {
+    process.env.SHOPIFY_TEST_STORE_DOMAIN = "Draft-Store.myshopify.com";
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    mocks.createAdminSupabase.mockReturnValue({
+      from: vi.fn(() => ({ insert })),
+    });
+
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request("https://aladdyn.example/api/shopify/install"),
+    );
+
+    const location = new URL(response.headers.get("location")!);
+    expect(response.status).toBe(303);
+    expect(location.origin).toBe("https://draft-store.myshopify.com");
+    expect(location.pathname).toBe("/admin/oauth/authorize");
+    expect(location.searchParams.get("state")).toBeTruthy();
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: "user-1",
+        shop_domain: "draft-store.myshopify.com",
+        state_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        redirect_path: "/dashboard?connected=1",
+      }),
+    );
+  });
+
+  it("prefers the App Store listing after the app is published", async () => {
+    process.env.SHOPIFY_APP_STORE_URL =
+      "https://apps.shopify.com/aladdyn-test-listing";
+    process.env.SHOPIFY_TEST_STORE_DOMAIN = "draft-store.myshopify.com";
+
+    const { GET } = await import("@/app/api/shopify/install/route");
+    const response = await GET(
+      new Request("https://aladdyn.example/api/shopify/install"),
+    );
+
     expect(response.headers.get("location")).toBe(
       "https://apps.shopify.com/aladdyn-test-listing",
     );
