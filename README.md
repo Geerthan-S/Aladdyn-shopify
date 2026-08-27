@@ -113,10 +113,9 @@ Create the app in Shopify's Dev Dashboard, select the appropriate public distrib
 | Shopify POS               | Off                                                                      |
 | App proxy                 | Blank                                                                    |
 
-Copy `shopify.app.toml.example` to `shopify.app.toml`, replace its placeholders, link it with Shopify CLI, and deploy the app configuration:
+The production `shopify.app.toml` is committed with Aladdyn's public client ID, stable application URL, callback, read-only scopes, and webhook subscriptions. Link it with Shopify CLI and deploy the app configuration:
 
 ```powershell
-shopify app config link
 shopify app deploy
 ```
 

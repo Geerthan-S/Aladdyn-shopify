@@ -1,0 +1,28 @@
+client_id = "7b1f5dbc9ba47cf24e959cd3e6b8926e"
+name = "Aladdyn Shopify Connector"
+handle = "aladdyn-shopify-connector"
+application_url = "https://aladdyn-app.vercel.app"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,read_inventory,read_locations,read_orders,read_discounts"
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [
+  "https://aladdyn-app.vercel.app/api/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/api/shopify/webhooks"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/api/shopify/webhooks"
+
+[pos]
+embedded = false
