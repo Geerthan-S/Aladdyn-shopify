@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   enforceRateLimit: vi.fn(),
   createAdminSupabase: vi.fn(),
   getConnectionForUser: vi.fn(),
+  shopifyGraphQL: vi.fn(),
+  shopifyGraphQLWithAccessToken: vi.fn(),
+  uninstallShopifyApp: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/require-user", () => ({ requireUser: mocks.requireUser }));
@@ -26,6 +29,11 @@ vi.mock("@/lib/shopify/connection", async (importOriginal) => {
     getConnectionForUser: mocks.getConnectionForUser,
   };
 });
+vi.mock("@/lib/shopify/admin-graphql", () => ({
+  shopifyGraphQL: mocks.shopifyGraphQL,
+  shopifyGraphQLWithAccessToken: mocks.shopifyGraphQLWithAccessToken,
+  uninstallShopifyApp: mocks.uninstallShopifyApp,
+}));
 
 beforeAll(() => {
   process.env.NEXT_PUBLIC_APP_URL = "https://aladdyn.example";
@@ -45,6 +53,18 @@ beforeEach(() => {
   delete process.env.SHOPIFY_TEST_STORE_DOMAIN;
   mocks.requireUser.mockResolvedValue({ id: "user-1" });
   mocks.enforceRateLimit.mockResolvedValue(undefined);
+  mocks.uninstallShopifyApp.mockResolvedValue(undefined);
+  mocks.shopifyGraphQL.mockResolvedValue({
+    data: {
+      appUninstall: { app: { id: "gid://shopify/App/1" }, userErrors: [] },
+    },
+    graphQL: {
+      requestedCost: 1,
+      actualCost: 1,
+      currentlyAvailable: 999,
+      restoreRate: 50,
+    },
+  });
   mocks.createAdminSupabase.mockReturnValue({
     from: vi.fn(() => ({
       insert: vi.fn().mockResolvedValue({ error: null }),
@@ -183,6 +203,64 @@ describe("security-sensitive route boundaries", () => {
     expect(response.headers.get("location")).toBe(
       "https://aladdyn.example/connect?error=OAUTH_INVALID",
     );
+    expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
+  });
+
+  it("uninstalls the Shopify app before deleting local credentials", async () => {
+    const connection = {
+      id: "connection-1",
+      user_id: "user-1",
+      shop_domain: "test.myshopify.com",
+      shopify_shop_id: "gid://shopify/Shop/1",
+      shop_name: "Test Store",
+      status: "connected",
+      api_version: "2026-07",
+      granted_scopes: ["read_products"],
+      installed_at: "2026-08-27T00:00:00.000Z",
+      verified_at: "2026-08-27T00:00:00.000Z",
+      disconnected_at: null,
+    };
+    mocks.getConnectionForUser.mockResolvedValue(connection);
+    const deleteEq = vi.fn().mockResolvedValue({ error: null });
+    const updateOwnerEq = vi.fn().mockResolvedValue({ error: null });
+    const updateIdEq = vi.fn(() => ({ eq: updateOwnerEq }));
+    mocks.createAdminSupabase.mockReturnValue({
+      from: vi.fn((table: string) => {
+        if (table === "shopify_connection_secrets") {
+          return { delete: vi.fn(() => ({ eq: deleteEq })) };
+        }
+        return { update: vi.fn(() => ({ eq: updateIdEq })) };
+      }),
+    });
+
+    const { POST } = await import("@/app/api/shopify/disconnect/route");
+    const response = await POST();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      disconnected: true,
+      shopifyRevocation: "uninstalled",
+    });
+    expect(mocks.uninstallShopifyApp).toHaveBeenCalledWith(connection);
+    expect(deleteEq).toHaveBeenCalledWith("connection_id", "connection-1");
+    expect(updateIdEq).toHaveBeenCalledWith("id", "connection-1");
+    expect(updateOwnerEq).toHaveBeenCalledWith("user_id", "user-1");
+  });
+
+  it("keeps local credentials when Shopify cannot uninstall", async () => {
+    mocks.getConnectionForUser.mockResolvedValue({
+      id: "connection-1",
+      user_id: "user-1",
+      shop_domain: "test.myshopify.com",
+    });
+    mocks.uninstallShopifyApp.mockRejectedValueOnce(
+      new AppError("NETWORK_ERROR", "Shopify could not be reached", 503),
+    );
+
+    const { POST } = await import("@/app/api/shopify/disconnect/route");
+    const response = await POST();
+
+    expect(response.status).toBe(503);
     expect(mocks.createAdminSupabase).not.toHaveBeenCalled();
   });
 

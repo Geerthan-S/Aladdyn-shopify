@@ -29,6 +29,30 @@ export type GraphQLCost = {
   restoreRate: number;
 };
 
+const APP_UNINSTALL_MUTATION = `mutation DisconnectShopifyApp {
+  appUninstall {
+    app { id }
+    userErrors { message }
+  }
+}`;
+
+export async function uninstallShopifyApp(connection: ConnectionRecord) {
+  const response = await shopifyGraphQL<{
+    appUninstall: {
+      app: { id: string } | null;
+      userErrors: { message: string }[];
+    };
+  }>(connection, APP_UNINSTALL_MUTATION);
+  const userError = response.data.appUninstall.userErrors[0];
+  if (userError) {
+    throw new AppError(
+      "SHOPIFY_GRAPHQL_ERROR",
+      userError.message.slice(0, 400),
+      502,
+    );
+  }
+}
+
 export async function shopifyGraphQL<T>(
   connection: ConnectionRecord,
   query: string,

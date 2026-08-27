@@ -101,7 +101,7 @@ export function InspectorShell({
   async function disconnect() {
     if (
       !window.confirm(
-        "Disconnect this store and remove Aladdyn’s local token access? You must also uninstall the app in Shopify Admin to revoke Shopify-side access.",
+        "Disconnect and uninstall Aladdyn from this Shopify store? This removes the Shopify installation and Aladdyn’s local token access.",
       )
     )
       return;
@@ -156,7 +156,7 @@ export function InspectorShell({
             className="w-full rounded-lg px-3 py-2 text-sm text-rose-300 hover:bg-rose-400/10"
             onClick={disconnect}
           >
-            Disconnect
+            Disconnect and uninstall
           </button>
         </div>
       </aside>

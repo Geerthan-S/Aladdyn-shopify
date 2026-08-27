@@ -207,7 +207,7 @@ Deploy the TOML configuration before testing. A route existing in code does not 
 
 ## Disconnect and uninstall
 
-Disconnect requires explicit confirmation and removes the encrypted token pair locally. Shopify's current token documentation describes merchant uninstall (or client-secret revocation) as the event that ends Shopify-side token access; it does not document a per-install remote uninstall endpoint for this standalone app. The UI therefore tells the merchant to remove Aladdyn from Shopify Admin to complete Shopify-side revocation.
+Disconnect requires explicit confirmation. While the current offline token is still available, Aladdyn calls Shopify's `appUninstall` mutation; only after Shopify confirms the uninstall (or reports that access was already revoked) does Aladdyn remove its encrypted token pair and mark the connection disconnected. A temporary Shopify/network failure preserves the token so the merchant can retry safely.
 
 The `app/uninstalled` webhook converges the local connection to an uninstalled, tokenless state.
 
