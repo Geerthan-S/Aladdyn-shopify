@@ -42,6 +42,13 @@ Supabase Postgres
 
 Shopify GraphQL calls occur only in `src/lib/shopify/admin-graphql.ts`. There is no arbitrary GraphQL endpoint.
 
+Shopper commerce is a separate path. The authenticated `/api/chat` route invokes
+the Genie tool router, which calls a provider-neutral commerce orchestrator. The
+Shopify adapter discovers the merchant's `/.well-known/ucp` profile, negotiates
+UCP `2026-04-08`, and uses the discovered MCP endpoint for catalog, cart, and
+checkout handoff. Genie never calls Shopify tools directly, and the Admin
+GraphQL connector remains unchanged.
+
 ## Technology
 
 - Next.js 16.3 App Router, React 19, TypeScript, and Tailwind CSS 4
@@ -230,6 +237,38 @@ The `app/uninstalled` webhook converges the local connection to an uninstalled, 
 | `SHOPIFY_REQUEST_TIMEOUT_MS`           | Server only  | Shopify request timeout                                 |
 | `DATA_INSPECTOR_PAGE_SIZE`             | Server only  | Default inspector page size                             |
 | `OAUTH_STATE_TTL_SECONDS`              | Server only  | OAuth state lifetime                                    |
+| `SHOPIFY_UCP_CLIENT_ID`                | Server only  | Shopify agent client ID for authenticated Checkout MCP  |
+| `SHOPIFY_UCP_CLIENT_SECRET`            | Server only  | Shopify agent secret; never returned or logged          |
+| `ALADDYN_UCP_PROFILE_URL`              | Server only  | Public UCP agent profile passed in every MCP call       |
+
+## Genie UCP / MCP commerce
+
+Apply `supabase/migrations/002_ucp_commerce.sql` after the base connector
+migration. It creates user-scoped conversational sessions, authoritative cart
+state, optimistic cart versions, and idempotent operation records. Browser code
+cannot write these tables; all mutations pass through the authenticated chat
+route and server-only commerce layer.
+
+Aladdyn publishes its agent profile at `GET /.well-known/ucp`. It advertises
+only catalog search/lookup, cart, and checkout capabilities for UCP
+`2026-04-08`. Merchant discovery is never hardcoded: the adapter validates and
+caches `https://{shop}/.well-known/ucp`, then accepts only the same merchant's
+HTTPS `/api/ucp/mcp` endpoint.
+
+The normalized Genie tools are `search_products`, `get_product`, `view_cart`,
+`add_to_cart`, `remove_from_cart`, `change_quantity`, `checkout`, and
+`get_checkout_status`. Shopify provider names remain below the abstraction.
+Cart updates always send the full authoritative line-item, context, and
+attribution state because UCP `update_cart` uses replacement semantics.
+
+Checkout is handoff-only. Aladdyn calls `create_checkout` only when the shopper
+asks to buy, validates the returned HTTPS `continue_url`, persists the checkout
+state, and renders a **Continue Secure Checkout** link. Aladdyn does not expose
+or call `complete_checkout`, collect card details, or handle payment tokens.
+
+The UCP inspector is available at `/dashboard/ucp`. Its health check verifies
+discovery, the published Aladdyn profile, agent authentication, and advertised
+tool availability without creating a cart or checkout.
 
 ## Local HTTPS tunnel
 

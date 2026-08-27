@@ -20,6 +20,18 @@ export function AppHeader({ email }: { email: string }) {
         <div className="flex items-center gap-3">
           <Link
             className="hidden text-sm font-medium text-slate-500 hover:text-slate-950 sm:block"
+            href="/genie"
+          >
+            Genie
+          </Link>
+          <Link
+            className="hidden text-sm font-medium text-slate-500 hover:text-slate-950 sm:block"
+            href="/dashboard"
+          >
+            Inspector
+          </Link>
+          <Link
+            className="hidden text-sm font-medium text-slate-500 hover:text-slate-950 sm:block"
             href="/connect"
           >
             Connection

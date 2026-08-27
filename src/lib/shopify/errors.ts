@@ -68,6 +68,7 @@ export function redactSecrets(value: unknown): unknown {
   if (typeof value === "string") {
     return value
       .replace(/shp(at|rt)_[A-Za-z0-9_-]+/g, "[REDACTED_SHOPIFY_TOKEN]")
+      .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer [REDACTED]")
       .replace(/([?&](?:code|hmac|state)=)[^&\s]+/gi, "$1[REDACTED]")
       .replace(
         /(authorization|cookie|x-shopify-access-token)[=:]\s*[^,\s}]+/gi,

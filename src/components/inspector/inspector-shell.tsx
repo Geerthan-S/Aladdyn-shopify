@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -206,6 +207,17 @@ export function InspectorShell({
                 <Clipboard className="h-4 w-4" />
               </button>
             </div>
+          </div>
+          <div className="mt-5 flex gap-2 border-b border-slate-200">
+            <span className="border-b-2 border-cyan-600 px-4 py-3 text-sm font-semibold text-cyan-800">
+              Admin GraphQL
+            </span>
+            <Link
+              className="px-4 py-3 text-sm font-semibold text-slate-500 hover:text-slate-950"
+              href="/dashboard/ucp"
+            >
+              UCP / MCP
+            </Link>
           </div>
           {payload && (
             <div className="mt-5 flex flex-wrap gap-2 text-xs">
