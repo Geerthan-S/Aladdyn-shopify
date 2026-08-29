@@ -31,7 +31,8 @@ export async function getSyncStatus(connectionId: string): Promise<SyncStatus> {
         status: "setup_required",
         productCount: 0,
         lastSyncedAt: null,
-        error: "Apply migration 003_ai_commerce_prototype.sql",
+        error:
+          "Apply migrations 002_ucp_commerce.sql and 003_ai_commerce_prototype.sql",
       };
     }
     throw new AppError("NETWORK_ERROR", "Unable to read sync status", 503);

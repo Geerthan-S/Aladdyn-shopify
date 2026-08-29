@@ -127,6 +127,26 @@ export function inferDeterministicAction(
   ) {
     return { tool: "expand_results", input: {} };
   }
+  if (
+    /^(?:which|what) one (?:is|will be|would be)(?: the)? best\??$/i.test(
+      normalized,
+    )
+  ) {
+    return { tool: "recommend_previous", input: {} };
+  }
+  const namedAdd = normalized.match(/^(?:add|put)\s+(?:the\s+)?(.+)$/i);
+  const productQuery = namedAdd
+    ? namedAdd[1]
+        .replace(/\s+too$/i, "")
+        .replace(/\s+(?:to|in)\s+(?:(?:my|the)\s+)?cart$/i, "")
+        .trim()
+    : "";
+  if (productQuery && !/^one more\b/i.test(productQuery)) {
+    return {
+      tool: "add_product_to_cart",
+      input: { productQuery, quantity: 1 },
+    };
+  }
 
   const displayMode =
     /\b(?:show all|show everything|list all|more options|show more|what else)\b/i.test(
@@ -238,6 +258,14 @@ async function executeAction(
         discovery,
       );
     }
+    case "recommend_previous": {
+      const discovery = commerce.recommendPrevious();
+      return createRecommendationResponse(
+        input.conversationId,
+        action.tool,
+        discovery,
+      );
+    }
     case "get_product": {
       const product = await commerce.getProduct(action.input.productId);
       return {
@@ -246,6 +274,37 @@ async function executeAction(
         message: `${product.title} has ${product.variants.length} option${product.variants.length === 1 ? "" : "s"}.`,
         products: [product],
       };
+    }
+    case "add_product_to_cart": {
+      const resolution = await commerce.resolveProductForCart(
+        action.input.productQuery,
+      );
+      if (resolution.kind === "choose_product") {
+        return {
+          conversationId: input.conversationId,
+          tool: action.tool,
+          message: "I found a few matches. Choose the product you want to add.",
+          products: resolution.products,
+        };
+      }
+      if (resolution.kind === "choose_variant") {
+        return {
+          conversationId: input.conversationId,
+          tool: action.tool,
+          message: "Choose an available option before I add it to your cart.",
+          products: [resolution.product],
+        };
+      }
+      const cart = await commerce.addToCart(
+        resolution.variantId,
+        action.input.quantity,
+      );
+      return cartResponse(
+        input.conversationId,
+        "add_to_cart",
+        cart,
+        `${resolution.product.title} was added to your cart.`,
+      );
     }
     case "view_cart": {
       const cart = await commerce.viewCart();
@@ -312,7 +371,11 @@ async function executeAction(
 
 export function createRecommendationResponse(
   conversationId: string,
-  tool: "search_products" | "recommend_products" | "expand_results",
+  tool:
+    | "search_products"
+    | "recommend_products"
+    | "expand_results"
+    | "recommend_previous",
   discovery: ProductDiscovery,
 ): GenieResponse {
   const { recommendation, visibleProducts } = discovery;

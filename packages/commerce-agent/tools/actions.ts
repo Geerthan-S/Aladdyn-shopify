@@ -3,6 +3,11 @@ export type ExplicitAction =
   | { tool: "recommend_products"; input: Record<string, unknown> }
   | { tool: "expand_results"; input: Record<string, never> }
   | { tool: "get_product"; input: { productId: string } }
+  | {
+      tool: "add_product_to_cart";
+      input: { productQuery: string; quantity: number };
+    }
+  | { tool: "recommend_previous"; input: Record<string, never> }
   | { tool: "view_cart"; input: Record<string, never> }
   | { tool: "add_to_cart"; input: { variantId: string; quantity: number } }
   | { tool: "remove_from_cart"; input: { variantId: string } }

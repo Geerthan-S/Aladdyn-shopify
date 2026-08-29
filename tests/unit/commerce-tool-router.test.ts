@@ -95,4 +95,28 @@ describe("deterministic commerce routing", () => {
       input: {},
     });
   });
+
+  it.each([
+    [
+      "add the multi-location snowboard in the cart",
+      "multi-location snowboard",
+    ],
+    ["add the collection snowboard too", "collection snowboard"],
+    ["put Multi-managed Snowboard to my cart", "Multi-managed Snowboard"],
+  ])(
+    "resolves named add request %s without AI IDs",
+    (message, productQuery) => {
+      expect(inferDeterministicAction(message)).toEqual({
+        tool: "add_product_to_cart",
+        input: { productQuery, quantity: 1 },
+      });
+    },
+  );
+
+  it("keeps best-match follow-ups in the current product context", () => {
+    expect(inferDeterministicAction("which one will be the best")).toEqual({
+      tool: "recommend_previous",
+      input: {},
+    });
+  });
 });

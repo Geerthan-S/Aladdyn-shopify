@@ -132,6 +132,8 @@ export type GenieToolName =
   | "recommend_products"
   | "expand_results"
   | "get_product"
+  | "add_product_to_cart"
+  | "recommend_previous"
   | "view_cart"
   | "add_to_cart"
   | "remove_from_cart"

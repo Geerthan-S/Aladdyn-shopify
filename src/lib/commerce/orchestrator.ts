@@ -51,15 +51,29 @@ export async function createCommerceOrchestrator(input: {
       limit: 10,
     });
     const discovery = buildProductDiscovery(candidates, constraints);
+    const catalogCurrency =
+      discovery.matchingProducts[0]?.price.currency ?? constraints.currency;
+    const cartState: AuthoritativeCartState = {
+      ...session.cartState,
+      context: {
+        ...session.cartState.context,
+        ...(catalogCurrency ? { currency: catalogCurrency } : {}),
+        ...(constraints.country
+          ? { address_country: constraints.country }
+          : {}),
+      },
+    };
     await saveSearchContext({
       userId: input.userId,
       sessionId: session.id,
       products: discovery.matchingProducts,
+      cartState,
     });
     session = {
       ...session,
       lastProducts: discovery.matchingProducts,
       lastVariantId: null,
+      cartState,
     };
     return discovery;
   }
@@ -76,6 +90,87 @@ export async function createCommerceOrchestrator(input: {
     });
   }
 
+  function recommendPrevious() {
+    if (session.lastProducts.length === 0) {
+      throw new CommerceError(
+        "INVALID_COMMERCE_INPUT",
+        "Search for products first, then I can recommend the best match.",
+        400,
+      );
+    }
+    return buildProductDiscovery(session.lastProducts, {
+      query: "previous matching products",
+      displayMode: "recommended",
+      strict: false,
+    });
+  }
+
+  async function resolveProductForCart(productQuery: string) {
+    let matches = matchingProducts(session.lastProducts, productQuery);
+    if (matches.length === 0) {
+      const candidates = await provider.searchProducts({
+        query: productQuery,
+        strict: false,
+        displayMode: "recommended",
+        currency: session.cartState.context.currency,
+        country: session.cartState.context.address_country,
+        limit: 10,
+      });
+      matches = matchingProducts(candidates, productQuery);
+      const products = matches.length > 0 ? matches : candidates;
+      const catalogCurrency = products[0]?.price.currency;
+      const cartState: AuthoritativeCartState = {
+        ...session.cartState,
+        context: {
+          ...session.cartState.context,
+          ...(catalogCurrency ? { currency: catalogCurrency } : {}),
+        },
+      };
+      await saveSearchContext({
+        userId: input.userId,
+        sessionId: session.id,
+        products,
+        cartState,
+      });
+      session = { ...session, lastProducts: products, cartState };
+      matches = products;
+    }
+    if (matches.length === 0) {
+      throw new CommerceError(
+        "INVALID_COMMERCE_INPUT",
+        `I couldn't find ${productQuery} in this store.`,
+        404,
+      );
+    }
+    const resolution = resolveProductSelection(matches, productQuery);
+    if (resolution.kind !== "resolved") return resolution;
+    const { product, variantId } = resolution;
+    const cartState: AuthoritativeCartState = {
+      ...session.cartState,
+      context: {
+        ...session.cartState.context,
+        currency: product.price.currency,
+      },
+    };
+    await saveSearchContext({
+      userId: input.userId,
+      sessionId: session.id,
+      products: session.lastProducts,
+      lastVariantId: variantId,
+      cartState,
+    });
+    session = {
+      ...session,
+      cartState,
+      lastVariantId: variantId,
+    };
+    return {
+      kind: "resolved" as const,
+      product,
+      variantId,
+    };
+  }
+
   async function getProduct(productId: string) {
     const product = await provider.getProduct(
       shopifyProductIdSchema.parse(productId),
@@ -86,12 +181,26 @@ export async function createCommerceOrchestrator(input: {
       products: [product],
       lastVariantId:
         product.variants.length === 1 ? product.variants[0].variantId : null,
+      cartState: {
+        ...session.cartState,
+        context: {
+          ...session.cartState.context,
+          currency: product.price.currency,
+        },
+      },
     });
     session = {
       ...session,
       lastProducts: [product],
       lastVariantId:
         product.variants.length === 1 ? product.variants[0].variantId : null,
+      cartState: {
+        ...session.cartState,
+        context: {
+          ...session.cartState.context,
+          currency: product.price.currency,
+        },
+      },
     };
     return product;
   }
@@ -282,6 +391,8 @@ export async function createCommerceOrchestrator(input: {
     searchProducts,
     discoverProducts,
     expandProducts,
+    recommendPrevious,
+    resolveProductForCart,
     getProduct,
     viewCart,
     addToCart,
@@ -323,4 +434,58 @@ export function selectVariant(
         variant.options.some((option) => option.value.toLowerCase() === needle),
     ) ?? null
   );
+}
+
+function matchingProducts(products: CommerceProduct[], query: string) {
+  const needle = normalizedProductName(query);
+  const terms = needle.split(" ").filter(Boolean);
+  return products.filter((product) => {
+    const title = normalizedProductName(product.title);
+    return (
+      title === needle ||
+      title.includes(needle) ||
+      needle.includes(title) ||
+      terms.every((term) => title.includes(term))
+    );
+  });
+}
+
+export function resolveProductSelection(
+  products: CommerceProduct[],
+  query: string,
+) {
+  const exact = products.filter(
+    (product) =>
+      normalizedProductName(product.title) === normalizedProductName(query),
+  );
+  const narrowed = exact.length === 1 ? exact : products;
+  if (narrowed.length > 1) {
+    return {
+      kind: "choose_product" as const,
+      products: narrowed.slice(0, 4),
+    };
+  }
+  const product = narrowed[0];
+  if (!product) {
+    return { kind: "choose_product" as const, products: [] };
+  }
+  const availableVariants = product.variants.filter(
+    (variant) => variant.available,
+  );
+  if (availableVariants.length !== 1) {
+    return { kind: "choose_variant" as const, product };
+  }
+  return {
+    kind: "resolved" as const,
+    product,
+    variantId: availableVariants[0].variantId,
+  };
+}
+
+function normalizedProductName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/^the\s+/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }

@@ -10,7 +10,10 @@ import { getAiProvider, type AiMessage, type AiTool } from "@/lib/ai/provider";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
 import type { ExplicitAction } from "@/lib/commerce/tool-router";
 import type { GenieResponse } from "@commerce-agent/providers/types";
-import { CommerceError } from "@commerce-agent/tools/errors";
+import {
+  commerceUserMessage,
+  CommerceError,
+} from "@commerce-agent/tools/errors";
 import {
   updateCustomerProfile,
   type CustomerProfile,
@@ -22,7 +25,10 @@ import {
   authoritativeCommerceMessage,
   serializeGenieToolResultForAi,
 } from "@/lib/ai/tool-payload";
-import { searchProductsSchema } from "@/lib/commerce/schemas";
+import {
+  searchProductsSchema,
+  shopifyVariantIdSchema,
+} from "@/lib/commerce/schemas";
 
 const tools: AiTool[] = [
   functionTool(
@@ -183,9 +189,9 @@ export async function runAiCommerceChat(input: {
           conversationId: input.conversationId,
           tool: null,
           message:
-            error instanceof Error
-              ? error.message.slice(0, 300)
-              : "The commerce tool could not complete that request.",
+            error instanceof CommerceError
+              ? commerceUserMessage(error)
+              : "I couldn't complete that cart action. Please choose an available product option and try again.",
         };
       }
       const resultText = JSON.stringify(
@@ -295,7 +301,7 @@ export function toolCallToAction(
         tool: "add_to_cart",
         input: z
           .object({
-            variantId: z.string(),
+            variantId: shopifyVariantIdSchema,
             quantity: z.number().int().min(1).max(100),
           })
           .parse(value),

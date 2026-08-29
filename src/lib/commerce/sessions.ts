@@ -166,11 +166,13 @@ export async function saveSearchContext(input: {
   sessionId: string;
   products: CommerceProduct[];
   lastVariantId?: string | null;
+  cartState?: AuthoritativeCartState;
 }) {
   if (isMemorySessionId(input.sessionId)) {
     updateMemorySession(input.sessionId, {
       last_products_json: input.products.slice(0, 10),
       last_variant_id: input.lastVariantId ?? null,
+      ...(input.cartState ? { cart_state_json: input.cartState } : {}),
     });
     return;
   }
@@ -180,6 +182,7 @@ export async function saveSearchContext(input: {
     .update({
       last_products_json: input.products.slice(0, 10),
       last_variant_id: input.lastVariantId ?? null,
+      ...(input.cartState ? { cart_state_json: input.cartState } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", input.sessionId)
@@ -188,6 +191,7 @@ export async function saveSearchContext(input: {
     updateMemorySession(input.sessionId, {
       last_products_json: input.products.slice(0, 10),
       last_variant_id: input.lastVariantId ?? null,
+      ...(input.cartState ? { cart_state_json: input.cartState } : {}),
     });
     return;
   }
@@ -474,6 +478,7 @@ function updateMemorySession(
       | "checkout_id"
       | "checkout_status"
       | "continue_url"
+      | "cart_state_json"
     >
   >,
 ) {

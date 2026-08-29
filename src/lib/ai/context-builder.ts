@@ -304,7 +304,7 @@ async function buildLivePrototypeContext(
       syncStatus: "prototype_live_shopify_fallback",
       syncedProductCount: products.length,
       lastSyncedAt: null,
-      note: "Database migration 003 is not applied, so this request is using live Shopify catalog fallback.",
+      note: "Database migrations 002 and 003 are not applied, so this request is using live Shopify catalog fallback without durable conversation or cart state.",
     },
     checkoutMode: "secure_shopify_handoff",
   });
@@ -333,7 +333,7 @@ function emptyProfile() {
 function prototypeMigrationError() {
   return new AppError(
     "CONFIGURATION_REQUIRED",
-    "Apply migration 003_ai_commerce_prototype.sql before using AI chat",
+    "Apply migrations 002_ucp_commerce.sql and 003_ai_commerce_prototype.sql before using AI chat",
     503,
   );
 }

@@ -21,7 +21,9 @@ const ALLOWED_TOOLS = new Set<ExplicitAction["tool"]>([
   "search_products",
   "recommend_products",
   "expand_results",
+  "recommend_previous",
   "get_product",
+  "add_product_to_cart",
   "view_cart",
   "add_to_cart",
   "remove_from_cart",
@@ -123,6 +125,7 @@ function eventForAction(action: ExplicitAction, result: GenieResponse) {
   switch (action.tool) {
     case "search_products":
     case "recommend_products":
+    case "recommend_previous":
       return {
         type: "SEARCH" as ShoppingEventType,
         metadata: {
@@ -142,10 +145,16 @@ function eventForAction(action: ExplicitAction, result: GenieResponse) {
         },
       };
     case "add_to_cart":
+    case "add_product_to_cart":
       return {
         type: "ADD_CART" as ShoppingEventType,
         metadata: {
-          variantId: action.input.variantId,
+          variantId:
+            "variantId" in action.input ? action.input.variantId : undefined,
+          productQuery:
+            "productQuery" in action.input
+              ? action.input.productQuery
+              : undefined,
           quantity: action.input.quantity,
         },
       };

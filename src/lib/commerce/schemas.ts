@@ -42,9 +42,17 @@ export const explicitActionSchema = z.discriminatedUnion("tool", [
     input: searchProductsSchema,
   }),
   z.object({ tool: z.literal("expand_results"), input: z.object({}) }),
+  z.object({ tool: z.literal("recommend_previous"), input: z.object({}) }),
   z.object({
     tool: z.literal("get_product"),
     input: z.object({ productId: shopifyProductIdSchema }),
+  }),
+  z.object({
+    tool: z.literal("add_product_to_cart"),
+    input: z.object({
+      productQuery: z.string().trim().min(1).max(300),
+      quantity: quantitySchema.min(1),
+    }),
   }),
   z.object({ tool: z.literal("view_cart"), input: z.object({}) }),
   z.object({

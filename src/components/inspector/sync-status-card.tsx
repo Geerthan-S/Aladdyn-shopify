@@ -65,7 +65,7 @@ export function SyncStatusCard() {
               {status?.status === "ready"
                 ? `${status.productCount} normalized products synced${status.lastSyncedAt ? ` · ${new Date(status.lastSyncedAt).toLocaleString()}` : ""}`
                 : status?.status === "setup_required"
-                  ? "Database migration required before the first sync."
+                  ? "Apply database migrations 002 and 003 before the first sync."
                   : status?.status === "failed"
                     ? "The previous sync failed. Your live Shopify data is unchanged."
                     : "Sync products, variants, collections, prices, and availability for AI context."}
