@@ -1,4 +1,4 @@
-import { ALADDYN_UCP_AGENT_PROFILE } from "@/lib/commerce/shopify/ucp/agent-profile";
+import { ALADDYN_UCP_AGENT_PROFILE } from "@shopify-adapter/ucp/agent-profile";
 
 export const dynamic = "force-static";
 

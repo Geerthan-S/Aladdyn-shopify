@@ -1,13 +1,17 @@
 export const runtime = "nodejs";
 
 import { ZodError } from "zod";
+import { runAiCommerceChat } from "@/lib/ai/chatbot";
 import { requireUser } from "@/lib/auth/require-user";
-import { commerceUserMessage, CommerceError } from "@/lib/commerce/errors";
+import {
+  commerceUserMessage,
+  CommerceError,
+} from "@commerce-agent/tools/errors";
 import { chatRequestSchema } from "@/lib/commerce/schemas";
-import { routeGenieMessage } from "@/lib/commerce/tool-router";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getConnectionForUser } from "@/lib/shopify/connection";
 import { AppError, safeErrorResponse } from "@/lib/shopify/errors";
+import { executePermittedTool } from "@/lib/tools/router";
 
 export async function POST(request: Request) {
   try {
@@ -22,11 +26,34 @@ export async function POST(request: Request) {
         409,
       );
     }
-    const response = await routeGenieMessage({
-      userId: user.id,
-      storeDomain: connection.shop_domain,
-      ...parsed,
-    });
+    if (parsed.stream && !parsed.action) {
+      return streamChat({
+        userId: user.id,
+        connection,
+        conversationId: parsed.conversationId,
+        messageId: parsed.messageId,
+        message: parsed.message,
+        customerKey: parsed.customerKey,
+      });
+    }
+    const response = parsed.action
+      ? await executePermittedTool({
+          userId: user.id,
+          connection,
+          conversationId: parsed.conversationId,
+          messageId: parsed.messageId,
+          message: parsed.message,
+          customerKey: parsed.customerKey ?? `visitor:${parsed.conversationId}`,
+          action: parsed.action,
+        })
+      : await runAiCommerceChat({
+          userId: user.id,
+          connection,
+          conversationId: parsed.conversationId,
+          messageId: parsed.messageId,
+          message: parsed.message,
+          customerKey: parsed.customerKey,
+        });
     return Response.json(response, {
       headers: { "Cache-Control": "no-store" },
     });
@@ -57,4 +84,55 @@ export async function POST(request: Request) {
     }
     return safeErrorResponse(error);
   }
+}
+
+function streamChat(input: Parameters<typeof runAiCommerceChat>[0]): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        let streamedText = false;
+        const response = await runAiCommerceChat({
+          ...input,
+          onTextDelta(text) {
+            streamedText = true;
+            controller.enqueue(
+              encoder.encode(`${JSON.stringify({ type: "text", text })}\n`),
+            );
+          },
+        });
+        if (!streamedText) {
+          controller.enqueue(
+            encoder.encode(
+              `${JSON.stringify({ type: "text", text: response.message })}\n`,
+            ),
+          );
+        }
+        controller.enqueue(
+          encoder.encode(
+            `${JSON.stringify({ type: "result", response: { ...response, message: "" } })}\n`,
+          ),
+        );
+      } catch (error) {
+        const message =
+          error instanceof CommerceError
+            ? commerceUserMessage(error)
+            : error instanceof AppError
+              ? error.message
+              : "The AI assistant is temporarily unavailable.";
+        controller.enqueue(
+          encoder.encode(`${JSON.stringify({ type: "error", message })}\n`),
+        );
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Cache-Control": "no-store, no-transform",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }

@@ -62,7 +62,15 @@ const serverSchema = z
 
 export type ServerEnv = z.infer<typeof serverSchema>;
 
+const supabaseAdminSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: z.url(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+});
+
+export type SupabaseAdminEnv = z.infer<typeof supabaseAdminSchema>;
+
 let cached: ServerEnv | undefined;
+let cachedSupabaseAdmin: SupabaseAdminEnv | undefined;
 
 export function getServerEnv(): ServerEnv {
   if (cached) return cached;
@@ -88,6 +96,22 @@ export function getServerEnv(): ServerEnv {
 
   cached = parsed.data;
   return cached;
+}
+
+export function getSupabaseAdminEnv(): SupabaseAdminEnv {
+  if (cachedSupabaseAdmin) return cachedSupabaseAdmin;
+
+  const parsed = supabaseAdminSchema.safeParse(process.env);
+  if (!parsed.success) {
+    const missing = parsed.error.issues
+      .map((issue) => issue.path.join("."))
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(`Supabase admin configuration is incomplete: ${missing}`);
+  }
+
+  cachedSupabaseAdmin = parsed.data;
+  return cachedSupabaseAdmin;
 }
 
 export function hasPublicSupabaseEnv() {

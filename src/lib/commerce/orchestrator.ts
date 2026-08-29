@@ -4,8 +4,8 @@ import {
   addCartLine,
   changeCartLineQuantity,
   removeCartLine,
-} from "@/lib/commerce/cart-state";
-import { CommerceError } from "@/lib/commerce/errors";
+} from "@commerce-agent/tools/cart-state";
+import { CommerceError } from "@commerce-agent/tools/errors";
 import {
   beginCommerceOperation,
   finishCommerceOperation,
@@ -13,11 +13,11 @@ import {
   saveSearchContext,
   updateCheckoutState,
 } from "@/lib/commerce/sessions";
-import { createShopifyCommerceProvider } from "@/lib/commerce/shopify";
+import { createShopifyCommerceProvider } from "@shopify-adapter";
 import {
   commerceIdempotencyKey,
   requestHash,
-} from "@/lib/commerce/shopify/ucp/idempotency";
+} from "@shopify-adapter/ucp/idempotency";
 import {
   searchProductsSchema,
   shopifyProductIdSchema,
@@ -27,7 +27,7 @@ import type {
   CommerceCart,
   CommerceCheckout,
   CommerceProduct,
-} from "@/lib/commerce/types";
+} from "@commerce-agent/providers/types";
 
 export async function createCommerceOrchestrator(input: {
   userId: string;
@@ -205,7 +205,11 @@ export async function createCommerceOrchestrator(input: {
       );
     }
     try {
-      const checkoutResult = await provider.createCheckout(session.cartId, key);
+      const checkoutResult = await provider.createCheckout(
+        session.cartId,
+        session.cartState,
+        key,
+      );
       await finishCommerceOperation({
         userId: input.userId,
         operationId: begun.operationId,

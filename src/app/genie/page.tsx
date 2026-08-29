@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { GenieChat } from "@/components/genie/genie-chat";
 import { hasPublicSupabaseEnv } from "@/lib/env";
+import { getConnectionForUser } from "@/lib/shopify/connection";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +12,7 @@ export default async function GeniePage() {
   const supabase = await createServerSupabase();
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
-  const { data: connection } = await supabase
-    .from("shopify_connections")
-    .select("shop_domain,status")
-    .maybeSingle();
+  const connection = await getConnectionForUser(data.user.id);
   if (!connection || connection.status !== "connected") redirect("/connect");
   return (
     <>

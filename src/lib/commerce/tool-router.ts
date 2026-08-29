@@ -1,21 +1,13 @@
 import "server-only";
 
-import { CommerceError } from "@/lib/commerce/errors";
+import { CommerceError } from "@commerce-agent/tools/errors";
 import {
   createCommerceOrchestrator,
   selectVariant,
 } from "@/lib/commerce/orchestrator";
-import type { GenieResponse } from "@/lib/commerce/types";
-
-type ExplicitAction =
-  | { tool: "search_products"; input: Record<string, unknown> }
-  | { tool: "get_product"; input: { productId: string } }
-  | { tool: "view_cart"; input: Record<string, never> }
-  | { tool: "add_to_cart"; input: { variantId: string; quantity: number } }
-  | { tool: "remove_from_cart"; input: { variantId: string } }
-  | { tool: "change_quantity"; input: { variantId: string; quantity: number } }
-  | { tool: "checkout"; input: Record<string, never> }
-  | { tool: "get_checkout_status"; input: Record<string, never> };
+import type { GenieResponse } from "@commerce-agent/providers/types";
+import type { ExplicitAction } from "@commerce-agent/tools/actions";
+export type { ExplicitAction } from "@commerce-agent/tools/actions";
 
 const injectionSignals = [
   /ignore (all|any|the|your) (previous|prior|system) instructions?/i,
@@ -154,6 +146,17 @@ async function executeAction(
         message: products.length
           ? `I found ${products.length} product${products.length === 1 ? "" : "s"} in this store.`
           : "I couldn't find a matching product in this store.",
+        products,
+      };
+    }
+    case "recommend_products": {
+      const products = await commerce.searchProducts(action.input);
+      return {
+        conversationId: input.conversationId,
+        tool: action.tool,
+        message: products.length
+          ? `I found ${products.length} personalized option${products.length === 1 ? "" : "s"}.`
+          : "I couldn't find an available match for those preferences.",
         products,
       };
     }

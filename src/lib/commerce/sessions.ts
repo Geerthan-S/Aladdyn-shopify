@@ -1,14 +1,14 @@
 import "server-only";
 
-import { CommerceError } from "@/lib/commerce/errors";
-import { createCartAttribution } from "@/lib/commerce/shopify/ucp/attribution";
+import { CommerceError } from "@commerce-agent/tools/errors";
+import { createCartAttribution } from "@shopify-adapter/ucp/attribution";
 import type {
   AuthoritativeCartState,
   CommerceProduct,
   CommerceSession,
   ProviderCapabilities,
-} from "@/lib/commerce/types";
-import { UCP_VERSION } from "@/lib/commerce/types";
+} from "@commerce-agent/providers/types";
+import { SHOPIFY_UCP_VERSION } from "@shopify-adapter/capabilities";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 type SessionRow = {
@@ -36,7 +36,7 @@ function mapSession(row: SessionRow): CommerceSession {
     conversationId: row.conversation_id,
     provider: "shopify",
     storeDomain: row.store_domain,
-    ucpVersion: UCP_VERSION,
+    ucpVersion: SHOPIFY_UCP_VERSION,
     mcpEndpoint: row.mcp_endpoint,
     cartId: row.cart_id,
     cartState: row.cart_state_json,
@@ -76,16 +76,19 @@ export async function getOrCreateCommerceSession(input: {
         409,
       );
     }
-    if (row.mcp_endpoint !== input.capabilities.mcpEndpoint) {
+    if (!input.capabilities.endpoint) {
+      throw new Error("Commerce connector endpoint is missing");
+    }
+    if (row.mcp_endpoint !== input.capabilities.endpoint) {
       await admin
         .from("chat_commerce_sessions")
         .update({
-          mcp_endpoint: input.capabilities.mcpEndpoint,
+          mcp_endpoint: input.capabilities.endpoint,
           updated_at: new Date().toISOString(),
         })
         .eq("id", row.id)
         .eq("user_id", input.userId);
-      row.mcp_endpoint = input.capabilities.mcpEndpoint;
+      row.mcp_endpoint = input.capabilities.endpoint;
     }
     return mapSession(row);
   }
@@ -106,8 +109,8 @@ export async function getOrCreateCommerceSession(input: {
       conversation_id: input.conversationId,
       provider: "shopify",
       store_domain: input.storeDomain,
-      ucp_version: UCP_VERSION,
-      mcp_endpoint: input.capabilities.mcpEndpoint,
+      ucp_version: SHOPIFY_UCP_VERSION,
+      mcp_endpoint: input.capabilities.endpoint,
       cart_state_json: state,
       channel: input.channel ?? "web_chat",
       campaign: input.campaign ?? null,

@@ -10,7 +10,8 @@ use_legacy_install_flow = true
 
 [auth]
 redirect_urls = [
-  "https://aladdyn-app.vercel.app/api/shopify/callback"
+  "https://aladdyn-app.vercel.app/api/shopify/callback",
+  "http://localhost:3000/api/shopify/callback"
 ]
 
 [webhooks]
@@ -18,6 +19,10 @@ api_version = "2026-07"
 
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
+uri = "/api/shopify/webhooks"
+
+[[webhooks.subscriptions]]
+topics = ["products/create", "products/update", "products/delete"]
 uri = "/api/shopify/webhooks"
 
 [[webhooks.subscriptions]]

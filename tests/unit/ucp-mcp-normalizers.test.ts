@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ShopifyMcpClient } from "@/lib/commerce/shopify/ucp/mcp-client";
+import { ShopifyMcpClient } from "@shopify-adapter/ucp/mcp-client";
 import {
   normalizeCart,
   normalizeCheckout,
   normalizeProduct,
   normalizeProductList,
   validateContinueUrl,
-} from "@/lib/commerce/shopify/ucp/normalizers";
-import type { AuthoritativeCartState } from "@/lib/commerce/types";
+} from "@shopify-adapter/ucp/normalizers";
+import type { AuthoritativeCartState } from "@commerce-agent/providers/types";
 
 const state: AuthoritativeCartState = {
   lineItems: [{ variantId: "gid://shopify/ProductVariant/1", quantity: 1 }],
@@ -55,6 +55,43 @@ describe("generic Shopify MCP client", () => {
     );
     await expect(
       makeClient(fetcher).call("get_cart", { id: "bad" }),
+    ).rejects.toMatchObject({ code: "MCP_ERROR" });
+  });
+
+  it("allows explicitly requested structured recovery results", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        jsonrpc: "2.0",
+        id: "1",
+        result: {
+          isError: true,
+          structuredContent: {
+            id: "gid://shopify/Checkout/1",
+            status: "incomplete",
+            continue_url: "https://test.myshopify.com/cart/c/1",
+          },
+        },
+      }),
+    );
+    await expect(
+      makeClient(fetcher).call(
+        "create_checkout",
+        { checkout: { line_items: [] } },
+        { allowStructuredError: true },
+      ),
+    ).resolves.toMatchObject({ status: "incomplete" });
+  });
+
+  it("rejects structured tool errors by default", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        jsonrpc: "2.0",
+        id: "1",
+        result: { isError: true, structuredContent: { status: "failed" } },
+      }),
+    );
+    await expect(
+      makeClient(fetcher).call("create_cart", { cart: { line_items: [] } }),
     ).rejects.toMatchObject({ code: "MCP_ERROR" });
   });
 

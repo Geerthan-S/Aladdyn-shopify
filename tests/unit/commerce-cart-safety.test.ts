@@ -3,14 +3,14 @@ import {
   addCartLine,
   changeCartLineQuantity,
   removeCartLine,
-} from "@/lib/commerce/cart-state";
-import { ALADDYN_UCP_AGENT_PROFILE } from "@/lib/commerce/shopify/ucp/agent-profile";
-import { createCartAttribution } from "@/lib/commerce/shopify/ucp/attribution";
+} from "@commerce-agent/tools/cart-state";
+import { ALADDYN_UCP_AGENT_PROFILE } from "@shopify-adapter/ucp/agent-profile";
+import { createCartAttribution } from "@shopify-adapter/ucp/attribution";
 import {
   commerceIdempotencyKey,
   providerIdempotencyKey,
   requestHash,
-} from "@/lib/commerce/shopify/ucp/idempotency";
+} from "@shopify-adapter/ucp/idempotency";
 import { selectVariant } from "@/lib/commerce/orchestrator";
 import {
   chatRequestSchema,
@@ -21,7 +21,7 @@ import {
 import type {
   AuthoritativeCartState,
   CommerceProduct,
-} from "@/lib/commerce/types";
+} from "@commerce-agent/providers/types";
 
 const variantA = "gid://shopify/ProductVariant/1";
 const variantB = "gid://shopify/ProductVariant/2";

@@ -1,15 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createShopifyCart,
   getShopifyCart,
   updateShopifyCart,
-} from "@/lib/commerce/shopify/ucp/cart";
+} from "@shopify-adapter/ucp/cart";
 import {
   createShopifyCheckout,
   getShopifyCheckout,
-} from "@/lib/commerce/shopify/ucp/checkout";
-import type { ShopifyMcpClient } from "@/lib/commerce/shopify/ucp/mcp-client";
-import type { AuthoritativeCartState } from "@/lib/commerce/types";
+} from "@shopify-adapter/ucp/checkout";
+import type { ShopifyMcpClient } from "@shopify-adapter/ucp/mcp-client";
+import type { AuthoritativeCartState } from "@commerce-agent/providers/types";
 
 const merchant = "test.myshopify.com";
 const cartId = "gid://shopify/Cart/abc?key=secret";
@@ -74,23 +74,58 @@ describe("Shopify UCP cart tool mapping", () => {
 });
 
 describe("Shopify UCP checkout mapping", () => {
+  beforeEach(() => {
+    process.env.SHOPIFY_UCP_CLIENT_ID = "agent-id";
+    process.env.SHOPIFY_UCP_CLIENT_SECRET = "agent-secret";
+  });
+
   it("creates checkout from a cart in authenticated handoff mode", async () => {
     const client = mockClient(checkoutResponse());
     const checkout = await createShopifyCheckout(
       client,
       merchant,
       cartId,
+      state,
       "idem",
     );
     expect(client.call).toHaveBeenCalledWith(
       "create_checkout",
-      { checkout: { cart_id: cartId } },
+      {
+        checkout: {
+          cart_id: cartId,
+          line_items: [
+            { quantity: 1, item: { id: "gid://shopify/ProductVariant/1" } },
+            { quantity: 2, item: { id: "gid://shopify/ProductVariant/2" } },
+          ],
+          context: state.context,
+          attribution: state.attribution,
+        },
+      },
       {
         idempotencyKey: expect.stringMatching(/^[a-f0-9-]{36}$/),
         authenticated: true,
+        allowStructuredError: true,
       },
     );
     expect(checkout.continueUrl).toBe("https://test.myshopify.com/cart/c/abc");
+  });
+
+  it("allows Shopify's recoverable checkout handoff response", async () => {
+    const client = mockClient(checkoutResponse());
+    const checkout = await createShopifyCheckout(
+      client,
+      merchant,
+      cartId,
+      state,
+      "idem",
+    );
+    expect(checkout.status).toBe("requires_escalation");
+    expect(checkout.continueUrl).toMatch(/^https:\/\/test\.myshopify\.com\//);
+    expect(client.call).toHaveBeenCalledWith(
+      "create_checkout",
+      expect.anything(),
+      expect.objectContaining({ allowStructuredError: true }),
+    );
   });
 
   it("gets checkout status without exposing complete_checkout", async () => {
@@ -111,6 +146,18 @@ describe("Shopify UCP checkout mapping", () => {
       "complete_checkout",
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it("uses Shopify's public handoff during draft testing without agent credentials", async () => {
+    delete process.env.SHOPIFY_UCP_CLIENT_ID;
+    delete process.env.SHOPIFY_UCP_CLIENT_SECRET;
+    const client = mockClient(checkoutResponse());
+    await createShopifyCheckout(client, merchant, cartId, state, "idem");
+    expect(client.call).toHaveBeenCalledWith(
+      "create_checkout",
+      expect.anything(),
+      expect.objectContaining({ authenticated: false }),
     );
   });
 });

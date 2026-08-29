@@ -19,7 +19,10 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@commerce-agent/*": ["./packages/commerce-agent/*"],
+      "@shopify-adapter": ["./packages/shopify-adapter/index.ts"],
+      "@shopify-adapter/*": ["./packages/shopify-adapter/*"]
     }
   },
   "include": [

@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAgentTokenCache,
   getShopifyAgentToken,
-} from "@/lib/commerce/shopify/ucp/auth";
+} from "@shopify-adapter/ucp/auth";
 import {
   clearDiscoveryCache,
   discoverCommerceCapabilities,
-} from "@/lib/commerce/shopify/ucp/discovery";
+} from "@shopify-adapter/ucp/discovery";
 
 const validProfile = {
   ucp: {

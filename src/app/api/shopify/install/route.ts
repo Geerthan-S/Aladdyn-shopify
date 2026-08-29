@@ -21,10 +21,24 @@ import {
 } from "@/lib/env";
 
 function errorRedirect(request: Request, error: unknown) {
-  const code = error instanceof AppError ? error.code : "NETWORK_ERROR";
+  const code =
+    error instanceof AppError
+      ? error.code
+      : isConfigurationError(error)
+        ? "CONFIGURATION_REQUIRED"
+        : "NETWORK_ERROR";
   const target = new URL("/connect", request.url);
   target.searchParams.set("error", code);
   return NextResponse.redirect(target, 303);
+}
+
+function isConfigurationError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.startsWith("Server configuration is incomplete:") ||
+    error.message.startsWith("SHOPIFY_TOKEN_ENCRYPTION_KEY must decode") ||
+    error.message.startsWith("SHOPIFY_APP_STORE_URL must be")
+  );
 }
 
 async function beginAuthorization(

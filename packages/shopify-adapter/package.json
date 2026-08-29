@@ -1,0 +1,7 @@
+{
+  "name": "@aladdyn/shopify-adapter",
+  "version": "0.0.0-prototype",
+  "private": true,
+  "type": "module",
+  "sideEffects": false
+}

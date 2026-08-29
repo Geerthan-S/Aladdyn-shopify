@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "@/lib/shopify/errors";
-import { CommerceError } from "@/lib/commerce/errors";
-import { ALADDYN_UCP_AGENT_PROFILE } from "@/lib/commerce/shopify/ucp/agent-profile";
+import { CommerceError } from "@commerce-agent/tools/errors";
+import { ALADDYN_UCP_AGENT_PROFILE } from "@shopify-adapter/ucp/agent-profile";
 
 const mocks = vi.hoisted(() => ({
   requireUser: vi.fn(),
   enforceRateLimit: vi.fn(),
   getConnectionForUser: vi.fn(),
   routeGenieMessage: vi.fn(),
+  runAiCommerceChat: vi.fn(),
   discoverCommerceCapabilities: vi.fn(),
   getShopifyAgentToken: vi.fn(),
   listTools: vi.fn(),
@@ -24,13 +25,16 @@ vi.mock("@/lib/shopify/connection", () => ({
 vi.mock("@/lib/commerce/tool-router", () => ({
   routeGenieMessage: mocks.routeGenieMessage,
 }));
-vi.mock("@/lib/commerce/shopify/ucp/discovery", () => ({
+vi.mock("@/lib/ai/chatbot", () => ({
+  runAiCommerceChat: mocks.runAiCommerceChat,
+}));
+vi.mock("@shopify-adapter/ucp/discovery", () => ({
   discoverCommerceCapabilities: mocks.discoverCommerceCapabilities,
 }));
-vi.mock("@/lib/commerce/shopify/ucp/auth", () => ({
+vi.mock("@shopify-adapter/ucp/auth", () => ({
   getShopifyAgentToken: mocks.getShopifyAgentToken,
 }));
-vi.mock("@/lib/commerce/shopify/ucp/mcp-client", () => ({
+vi.mock("@shopify-adapter/ucp/mcp-client", () => ({
   ShopifyMcpClient: class {
     listTools = mocks.listTools;
   },
@@ -60,6 +64,13 @@ beforeEach(() => {
     tool: "search_products",
     products: [],
   });
+  mocks.runAiCommerceChat.mockResolvedValue({
+    conversationId: "conversation-1",
+    message: "Found one product",
+    tool: "search_products",
+    products: [],
+    model: "configured-model",
+  });
 });
 
 describe("authenticated Genie chat route", () => {
@@ -67,10 +78,12 @@ describe("authenticated Genie chat route", () => {
     const { POST } = await import("@/app/api/chat/route");
     const response = await POST(chatRequest());
     expect(response.status).toBe(200);
-    expect(mocks.routeGenieMessage).toHaveBeenCalledWith(
+    expect(mocks.runAiCommerceChat).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user-1",
-        storeDomain: "test.myshopify.com",
+        connection: expect.objectContaining({
+          shop_domain: "test.myshopify.com",
+        }),
         conversationId: "conversation-1",
       }),
     );
@@ -85,6 +98,20 @@ describe("authenticated Genie chat route", () => {
     expect(body).not.toContain("Authorization");
   });
 
+  it("streams natural-language AI responses as newline-delimited events", async () => {
+    const { POST } = await import("@/app/api/chat/route");
+    const response = await POST(
+      chatRequest("Find black shirts", undefined, true),
+    );
+    const body = await response.text();
+    expect(response.headers.get("content-type")).toContain(
+      "application/x-ndjson",
+    );
+    expect(body).toContain('"type":"text"');
+    expect(body).toContain('"type":"result"');
+    expect(mocks.runAiCommerceChat).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an unauthenticated shopper before invoking tools", async () => {
     mocks.requireUser.mockRejectedValueOnce(
       new AppError("AUTH_REQUIRED", "Log in to continue", 401),
@@ -96,7 +123,7 @@ describe("authenticated Genie chat route", () => {
   });
 
   it("returns a safe prompt-injection error without raw tool output", async () => {
-    mocks.routeGenieMessage.mockRejectedValueOnce(
+    mocks.runAiCommerceChat.mockRejectedValueOnce(
       new CommerceError(
         "INVALID_COMMERCE_INPUT",
         "I can help search this store, manage your cart, or start secure checkout.",
@@ -242,6 +269,7 @@ describe("commerce session ownership and concurrency", () => {
 function chatRequest(
   message = "Show me black shirts",
   action?: Record<string, unknown>,
+  stream = false,
 ) {
   return new Request("https://aladdyn-app.vercel.app/api/chat", {
     method: "POST",
@@ -250,6 +278,7 @@ function chatRequest(
       conversationId: "conversation-1",
       messageId: "message-1",
       message,
+      stream,
       ...(action ? { action } : {}),
     }),
   });

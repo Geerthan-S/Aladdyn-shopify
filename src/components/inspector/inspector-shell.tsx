@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Table2,
 } from "lucide-react";
+import { SyncStatusCard } from "@/components/inspector/sync-status-card";
 
 const datasets = [
   ["shop", "Shop details"],
@@ -219,6 +220,7 @@ export function InspectorShell({
               UCP / MCP
             </Link>
           </div>
+          <SyncStatusCard />
           {payload && (
             <div className="mt-5 flex flex-wrap gap-2 text-xs">
               <span

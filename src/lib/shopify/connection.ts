@@ -40,6 +40,8 @@ export async function getConnectionForUser(userId: string) {
       "id,user_id,shop_domain,shopify_shop_id,shop_name,status,api_version,granted_scopes,installed_at,verified_at,disconnected_at",
     )
     .eq("user_id", userId)
+    .order("verified_at", { ascending: false, nullsFirst: false })
+    .limit(1)
     .maybeSingle();
   if (error)
     throw new AppError(
@@ -50,11 +52,49 @@ export async function getConnectionForUser(userId: string) {
   return data as ConnectionRecord | null;
 }
 
+export async function listConnectionsForUser(userId: string) {
+  const admin = createAdminSupabase();
+  const { data, error } = await admin
+    .from("shopify_connections")
+    .select(
+      "id,user_id,shop_domain,shopify_shop_id,shop_name,status,api_version,granted_scopes,installed_at,verified_at,disconnected_at",
+    )
+    .eq("user_id", userId)
+    .order("verified_at", { ascending: false, nullsFirst: false });
+  if (error) {
+    throw new AppError(
+      "NETWORK_ERROR",
+      "Unable to read Shopify connections",
+      503,
+    );
+  }
+  return (data ?? []) as ConnectionRecord[];
+}
+
+export async function getConnectionForShop(shopDomain: string) {
+  const admin = createAdminSupabase();
+  const { data, error } = await admin
+    .from("shopify_connections")
+    .select(
+      "id,user_id,shop_domain,shopify_shop_id,shop_name,status,api_version,granted_scopes,installed_at,verified_at,disconnected_at",
+    )
+    .eq("shop_domain", shopDomain)
+    .maybeSingle();
+  if (error) {
+    throw new AppError(
+      "NETWORK_ERROR",
+      "Unable to read the Shopify connection",
+      503,
+    );
+  }
+  return data as ConnectionRecord | null;
+}
+
 export async function assertShopAvailable(shopDomain: string, userId: string) {
   const admin = createAdminSupabase();
   const { data, error } = await admin
     .from("shopify_connections")
-    .select("user_id")
+    .select("user_id,status")
     .eq("shop_domain", shopDomain)
     .maybeSingle();
   if (error)
@@ -63,7 +103,12 @@ export async function assertShopAvailable(shopDomain: string, userId: string) {
       "Unable to verify store ownership",
       503,
     );
-  if (data && data.user_id !== userId) {
+  if (
+    data &&
+    data.user_id !== userId &&
+    data.status !== "disconnected" &&
+    data.status !== "uninstalled"
+  ) {
     throw new AppError(
       "OWNERSHIP_CONFLICT",
       "This Shopify store is already linked to another Aladdyn account",

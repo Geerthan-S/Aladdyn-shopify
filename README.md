@@ -37,7 +37,10 @@ Supabase Postgres
   ├─ service-role-only encrypted token material
   ├─ service-role-only, single-use OAuth state hashes
   ├─ service-role-only webhook receipts
-  └─ service-role-only rate-limit buckets
+  ├─ service-role-only rate-limit buckets
+  ├─ normalized product and conversation data
+  ├─ shopper behavior and preference signals
+  └─ store-filtered pgvector product and policy retrieval
 ```
 
 Shopify GraphQL calls occur only in `src/lib/shopify/admin-graphql.ts`. There is no arbitrary GraphQL endpoint.
@@ -206,8 +209,19 @@ It verifies `X-Shopify-Hmac-Sha256` before parsing, validates the topic/shop/web
 - `customers/data_request`
 - `customers/redact`
 - `shop/redact`
+- `products/create`
+- `products/update`
+- `products/delete`
 
-`app/uninstalled` removes token material and marks the connection uninstalled. `shop/redact` deletes retained connection data. The baseline stores no customer profile payloads, so customer access/redaction topics are acknowledged without retaining the incoming personal payload. Shopify allows up to 30 days to complete mandatory privacy requests; this implementation performs its applicable cleanup synchronously. See [Shopify privacy law compliance](https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance).
+`app/uninstalled` removes token material and marks the connection uninstalled.
+`shop/redact` deletes retained connection data. `customers/redact` removes the
+matching protected customer/order context, shopper events, profiles, and
+conversations. Product create/update notifications refetch the authoritative
+Admin GraphQL product before updating normalized data and its embedding;
+product deletion removes the normalized row and cascades its embedding. The
+manual sync remains the reconciliation path because webhook delivery is not a
+complete historical sync. Shopify allows up to 30 days to complete mandatory
+privacy requests. See [Shopify privacy law compliance](https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance).
 
 Deploy the TOML configuration before testing. A route existing in code does not subscribe the app.
 
@@ -237,9 +251,15 @@ The `app/uninstalled` webhook converges the local connection to an uninstalled, 
 | `SHOPIFY_REQUEST_TIMEOUT_MS`           | Server only  | Shopify request timeout                                 |
 | `DATA_INSPECTOR_PAGE_SIZE`             | Server only  | Default inspector page size                             |
 | `OAUTH_STATE_TTL_SECONDS`              | Server only  | OAuth state lifetime                                    |
-| `SHOPIFY_UCP_CLIENT_ID`                | Server only  | Shopify agent client ID for authenticated Checkout MCP  |
-| `SHOPIFY_UCP_CLIENT_SECRET`            | Server only  | Shopify agent secret; never returned or logged          |
+| `SHOPIFY_UCP_CLIENT_ID`                | Server only  | Optional agent ID for authenticated Shopify MCP calls   |
+| `SHOPIFY_UCP_CLIENT_SECRET`            | Server only  | Optional agent secret; never returned or logged         |
 | `ALADDYN_UCP_PROFILE_URL`              | Server only  | Public UCP agent profile passed in every MCP call       |
+| `OPENROUTER_API_KEY`                   | Server only  | OpenRouter credential for AI generation                 |
+| `CHAT_MODEL`                           | Server only  | OpenRouter model ID used for shopping conversations     |
+| `FAST_MODEL`                           | Server only  | OpenRouter model ID used for structured profile updates |
+| `EMBEDDING_MODEL`                      | Server only  | Replaceable embedding model used by the RAG adapter     |
+| `EMBEDDING_DIMENSIONS`                 | Server only  | Must match migration 004 vector dimensions (`1536`)     |
+| `SHOPIFY_SYNC_MAX_PRODUCTS`            | Server only  | Product safety cap for one manual sync                  |
 
 ## Genie UCP / MCP commerce
 
@@ -270,6 +290,78 @@ The UCP inspector is available at `/dashboard/ucp`. Its health check verifies
 discovery, the published Aladdyn profile, agent authentication, and advertised
 tool availability without creating a cart or checkout.
 
+## AI commerce prototype
+
+Apply `supabase/migrations/003_ai_commerce_prototype.sql` after migrations 001
+and 002. Supabase Auth remains the user system; the migration adds multi-store
+merchant records, normalized products, protected customer/order context,
+conversations, messages, customer profiles, and cart-session relations. These
+tables are service-role only and are never queried directly by browser code.
+
+The runtime flow is:
+
+```text
+Customer chat UI
+  -> authenticated /api/chat route
+  -> provider-neutral AI orchestrator
+  -> controlled context builder + personalization
+  -> provider-neutral commerce tools
+  -> Shopify UCP/MCP for live catalog, cart, and checkout
+```
+
+The merchant dashboard exposes a manual **Sync products** control. Sync uses
+Admin GraphQL, normalizes products/variants/images/collections/options, and
+stores only compact fields needed for retrieval. Customer data is skipped
+unless `read_customers` is granted and Shopify allows protected customer data;
+order data is skipped unless `read_orders` is granted. Optional protected-data
+failures do not invalidate a successful product sync.
+
+`src/lib/ai/provider.ts` is the stable AI contract. The current adapter uses
+OpenRouter's chat-completions-compatible endpoint and supports normal
+completions, SSE streaming, function tools, and strict JSON Schema output.
+Neither model ID is hardcoded in application code: configure `CHAT_MODEL` and
+`FAST_MODEL` in the environment. The committed `.env.example` supplies the
+prototype defaults.
+
+Apply `supabase/migrations/004_agent_intelligence.sql` after migration 003. It
+enables pgvector and adds service-role-only `shopping_events`,
+`merchant_knowledge`, and `product_embeddings` tables plus exact,
+store-filtered similarity functions.
+
+The production intelligence flow is:
+
+```text
+User message
+  -> deterministic intent classification
+  -> recent conversation + explicit profile + behavior memory
+  -> store-filtered product and merchant-knowledge retrieval
+  -> compact AI context (retrieved content is untrusted data)
+  -> replaceable AI provider
+  -> schema-validated tool request
+  -> owner/store/action permission check
+  -> provider-neutral commerce orchestrator
+  -> Shopify UCP/MCP live search, cart, and checkout
+```
+
+Product sync generates embeddings only for changed product documents. Chat
+retrieval sends a small candidate set rather than the entire catalog. RAG
+candidates never authorize product, price, inventory, cart, or checkout claims;
+those facts must be confirmed by a live commerce tool.
+
+Merchant knowledge is managed through authenticated `GET /api/knowledge` and
+`POST /api/knowledge`. Supported records are shipping, returns, payment, FAQ, brand
+voice, and policies. Shopper signals may be recorded through authenticated
+`POST /api/shopping-events`; commerce tool execution also records search,
+product-view, add-cart, and remove-cart signals. Metadata is allowlisted and
+bounded before storage.
+
+The system prompt is composed from `src/lib/ai/rules/global.md`, `commerce.md`,
+`personalization.md`, and `security.md`, followed by the compact store/customer
+context. The chat provider interface in `src/lib/ai/provider.ts` is unchanged.
+The embedding interface is separately replaceable, so OpenRouter can later
+become the Aladdyn Agent Runtime while the Shopify commerce provider can become
+an Aladdyn MCP connector.
+
 ## Local HTTPS tunnel
 
 Shopify needs an HTTPS callback for realistic local OAuth testing. Start Next.js, then use an HTTPS tunnel such as Cloudflare Tunnel or ngrok:
@@ -283,7 +375,7 @@ Temporarily set `NEXT_PUBLIC_APP_URL` to the generated HTTPS origin, add the exa
 ## Vercel deployment order
 
 1. Create the Supabase project.
-2. Apply the committed SQL migration.
+2. Apply the committed SQL migrations in numeric order (001 through 004).
 3. Configure the Supabase Site URL.
 4. Add local and production auth redirect URLs.
 5. Import this repository into Vercel.
@@ -297,7 +389,9 @@ Temporarily set `NEXT_PUBLIC_APP_URL` to the generated HTTPS origin, add the exa
 13. Create a fresh Aladdyn tester account.
 14. Install on a Shopify development/test store.
 15. Verify every inspector dataset.
-16. Verify reconnect, disconnect, and uninstall behavior.
+16. Run a product sync and verify its dashboard status.
+17. Test AI search, personalization, cart creation, and checkout handoff.
+18. Verify reconnect, disconnect, and uninstall behavior.
 
 Do not release with placeholder URLs or a Vercel preview URL.
 
@@ -308,11 +402,18 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
+npm run eval
 npm run build
 npm run test:e2e
 ```
 
-Unit tests cover domain/SSRF validation, OAuth URL/state helpers, callback and webhook HMACs, AES-GCM round trips and tamper rejection, scope comparison, dataset/cursor allowlisting, and secret redaction. The Playwright smoke test covers the public landing/signup path on desktop and mobile.
+Unit and integration tests cover domain/SSRF validation, OAuth and webhook
+HMACs, encryption, scopes, secret redaction, AI provider behavior, context
+assembly, vector retrieval, behavior weighting, tool permissions, and product
+normalization. `npm run eval` executes the release scenarios documented in
+`evaluation/REPORT.md`. Playwright covers public/auth boundaries and contains a
+credential-gated installed-store journey for sync, recommendation, and cart
+creation.
 
 Credential-dependent Shopify/Supabase acceptance checks cannot be completed without test credentials and a development store. They are listed in `VALIDATION_REPORT.md` and must be run before production release.
 
@@ -363,7 +464,8 @@ Confirm the TOML version is deployed, the endpoint accepts direct POST requests 
 - Sensitive keys never use `NEXT_PUBLIC_`.
 - Browser errors use safe codes and diagnostic IDs; secret-like values are redacted from structured logs.
 - Security headers deny framing, MIME sniffing, sensitive browser capabilities, and arbitrary connection origins.
-- No customer profile payload is queried or retained by the baseline.
+- Customer profiles contain only explicit, non-sensitive shopping preferences.
+- Protected Shopify customer/order context is scope-gated and never sent as a raw dump.
 
 ## Encryption-key rotation
 

@@ -3,13 +3,14 @@ import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { ConnectForm } from "@/components/connect/connect-form";
 import { hasPublicSupabaseEnv } from "@/lib/env";
+import { getConnectionForUser } from "@/lib/shopify/connection";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 const messages: Record<string, string> = {
   CONFIGURATION_REQUIRED:
-    "Draft testing needs a Shopify development store. Configure its myshopify.com domain and try again.",
+    "Shopify app credentials are missing. Add SHOPIFY_API_KEY and SHOPIFY_API_SECRET from your Shopify draft app, then restart the app.",
   INVALID_SHOP: "The configured Shopify development store domain is invalid.",
   OWNERSHIP_CONFLICT:
     "That Shopify store is already linked to another Aladdyn account.",
@@ -30,10 +31,7 @@ export default async function ConnectPage({
   const supabase = await createServerSupabase();
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
-  const { data: connection } = await supabase
-    .from("shopify_connections")
-    .select("shop_domain,shop_name,status,verified_at")
-    .maybeSingle();
+  const connection = await getConnectionForUser(data.user.id);
   if (connection?.status === "connected") redirect("/dashboard");
   const params = await searchParams;
   return (

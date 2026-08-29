@@ -4,10 +4,10 @@ import { requireUser } from "@/lib/auth/require-user";
 import {
   ALADDYN_UCP_AGENT_PROFILE,
   getAgentProfileUrl,
-} from "@/lib/commerce/shopify/ucp/agent-profile";
-import { getShopifyAgentToken } from "@/lib/commerce/shopify/ucp/auth";
-import { discoverCommerceCapabilities } from "@/lib/commerce/shopify/ucp/discovery";
-import { ShopifyMcpClient } from "@/lib/commerce/shopify/ucp/mcp-client";
+} from "@shopify-adapter/ucp/agent-profile";
+import { getShopifyAgentToken } from "@shopify-adapter/ucp/auth";
+import { discoverCommerceCapabilities } from "@shopify-adapter/ucp/discovery";
+import { ShopifyMcpClient } from "@shopify-adapter/ucp/mcp-client";
 import { ucpProfileSchema } from "@/lib/commerce/schemas";
 import { getConnectionForUser } from "@/lib/shopify/connection";
 import { AppError, safeErrorResponse } from "@/lib/shopify/errors";

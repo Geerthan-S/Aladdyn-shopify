@@ -1,11 +1,7 @@
 import { ArrowRight, CheckCircle2, ShieldCheck } from "lucide-react";
 export function ConnectForm() {
   return (
-    <form
-      action="/api/shopify/install"
-      className="panel p-6 sm:p-8"
-      method="get"
-    >
+    <section className="panel p-6 sm:p-8">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700">
         <ShieldCheck className="h-6 w-6" />
       </div>
@@ -16,9 +12,9 @@ export function ConnectForm() {
         Continue to Shopify to log in and review Aladdyn’s read-only
         permissions. Aladdyn never asks for your Shopify password.
       </p>
-      <button className="btn-primary mt-6 px-5 py-3" type="submit">
+      <a className="btn-primary mt-6 px-5 py-3" href="/api/shopify/install">
         Connect with Shopify <ArrowRight className="h-4 w-4" />
-      </button>
+      </a>
       <div className="mt-7 border-t border-slate-100 pt-5">
         <div className="text-xs font-bold tracking-[.14em] text-slate-400 uppercase">
           Read-only permissions
@@ -37,6 +33,6 @@ export function ConnectForm() {
           )}
         </div>
       </div>
-    </form>
+    </section>
   );
 }

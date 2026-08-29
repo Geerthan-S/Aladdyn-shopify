@@ -1,13 +1,19 @@
 "use client";
 
 import { ArrowUp, ShoppingBag, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type {
   CommerceCart,
   CommerceCheckout,
   CommerceProduct,
   GenieResponse,
-} from "@/lib/commerce/types";
+} from "@commerce-agent/providers/types";
 
 type ChatEntry = {
   id: string;
@@ -64,9 +70,19 @@ export function GenieChat({ store }: { store: string }) {
           conversationId,
           messageId,
           message: trimmed,
+          stream: !action,
           ...(action ? { action } : {}),
         }),
       });
+      if (!action && response.ok && response.body) {
+        const assistantId = crypto.randomUUID();
+        setEntries((current) => [
+          ...current,
+          { id: assistantId, role: "assistant", text: "" },
+        ]);
+        await consumeChatStream(response, assistantId, setEntries);
+        return;
+      }
       const body = await response.json();
       if (!response.ok)
         throw new Error(body.error?.message ?? "Genie is unavailable");
@@ -87,6 +103,70 @@ export function GenieChat({ store }: { store: string }) {
           role: "assistant",
           text:
             reason instanceof Error ? reason.message : "Genie is unavailable",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rememberPurchase(product: CommerceProduct) {
+    if (!conversationId || loading) return;
+    const customerId = `visitor:${conversationId}`;
+    setLoading(true);
+    try {
+      const response = await fetch("/api/shopping-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId,
+          sessionId: conversationId,
+          eventType: "PURCHASE",
+          metadata: {
+            productId: product.productId,
+            productTitle: product.title,
+            category: product.productType,
+            color: product.variants
+              .flatMap((variant) => variant.options)
+              .find((option) => option.name.toLowerCase() === "color")?.value,
+            price: majorUnits(
+              product.price.amountMinor,
+              product.price.currency,
+            ),
+            currency: product.price.currency,
+            source: "shopper_statement",
+          },
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          body.error?.message ?? "Purchase history was not saved",
+        );
+      }
+      setEntries((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          text: `I bought ${product.title} before.`,
+        },
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: `Got it — I’ll use ${product.title} as purchase history for future recommendations.`,
+        },
+      ]);
+    } catch (reason) {
+      setEntries((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text:
+            reason instanceof Error
+              ? reason.message
+              : "Purchase history was not saved.",
         },
       ]);
     } finally {
@@ -162,6 +242,7 @@ export function GenieChat({ store }: { store: string }) {
                 {entry.response?.products && (
                   <ProductCards
                     products={entry.response.products}
+                    rememberPurchase={rememberPurchase}
                     send={send}
                   />
                 )}
@@ -212,11 +293,58 @@ export function GenieChat({ store }: { store: string }) {
   );
 }
 
+async function consumeChatStream(
+  response: Response,
+  assistantId: string,
+  setEntries: Dispatch<SetStateAction<ChatEntry[]>>,
+) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as
+        | { type: "text"; text: string }
+        | { type: "result"; response: GenieResponse }
+        | { type: "error"; message: string };
+      if (event.type === "text") text += event.text;
+      if (event.type === "error") text = event.message;
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.id === assistantId
+            ? {
+                ...entry,
+                text,
+                ...(event.type === "result"
+                  ? {
+                      response: {
+                        ...event.response,
+                        message: text,
+                      },
+                    }
+                  : {}),
+              }
+            : entry,
+        ),
+      );
+    }
+    if (done) break;
+  }
+}
+
 function ProductCards({
   products,
+  rememberPurchase,
   send,
 }: {
   products: CommerceProduct[];
+  rememberPurchase: (product: CommerceProduct) => Promise<void>;
   send: (text: string, action?: Action) => Promise<void>;
 }) {
   return (
@@ -257,6 +385,12 @@ function ProductCards({
                 }
               >
                 View
+              </button>
+              <button
+                className="rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-900"
+                onClick={() => void rememberPurchase(product)}
+              >
+                Bought before
               </button>
               {product.variants
                 .filter((variant) => variant.available)
@@ -387,4 +521,13 @@ function formatMoney(amountMinor: number, currency: string) {
   });
   const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amountMinor / 10 ** digits);
+}
+
+function majorUnits(amountMinor: number, currency: string) {
+  const digits =
+    new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+    }).resolvedOptions().maximumFractionDigits ?? 2;
+  return amountMinor / 10 ** digits;
 }
