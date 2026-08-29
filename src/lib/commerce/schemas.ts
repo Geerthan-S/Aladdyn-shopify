@@ -41,6 +41,7 @@ export const explicitActionSchema = z.discriminatedUnion("tool", [
     tool: z.literal("recommend_products"),
     input: searchProductsSchema,
   }),
+  z.object({ tool: z.literal("expand_results"), input: z.object({}) }),
   z.object({
     tool: z.literal("get_product"),
     input: z.object({ productId: shopifyProductIdSchema }),

@@ -14,6 +14,7 @@ import {
   getCustomerHistory,
 } from "@/lib/personalization/events";
 import { isPrototypeSchemaMissing } from "@/lib/prototype/schema";
+import { canonicalMajorMoney, canonicalMoney } from "@commerce-agent/money";
 
 export type ConversationContext = {
   storeId: string | null;
@@ -153,9 +154,14 @@ export async function buildConversationContext(input: {
       description: product.description,
       colors: product.colors,
       sizes: product.sizes,
-      priceMin: product.priceMin,
-      priceMax: product.priceMax,
-      currency: product.currency,
+      price:
+        product.priceMin !== null && product.currency
+          ? canonicalMajorMoney(product.priceMin, product.currency)
+          : null,
+      maximumPrice:
+        product.priceMax !== null && product.currency
+          ? canonicalMajorMoney(product.priceMax, product.currency)
+          : null,
       indexedAvailability: product.availability,
       similarity: product.similarity,
       warning: "Candidate only; verify live facts with a commerce tool.",
@@ -277,9 +283,7 @@ async function buildLivePrototypeContext(
         .flatMap((variant) => variant.options)
         .filter((option) => option.name.toLowerCase() === "size")
         .map((option) => option.value),
-      priceMin: product.price.amountMinor / 100,
-      priceMax: product.price.amountMinor / 100,
-      currency: product.price.currency,
+      price: canonicalMoney(product.price),
       indexedAvailability: product.availability,
       warning: "Live Shopify fallback candidate; verify details with tools.",
     })),

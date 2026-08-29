@@ -26,13 +26,37 @@ export async function searchShopifyCatalog(
       },
       filters: {
         available: true,
-        ...(parsed.maxPrice !== undefined
+        ...(parsed.minPrice !== undefined || parsed.maxPrice !== undefined
           ? {
               price: {
-                max: toMinorUnits(parsed.maxPrice, parsed.currency ?? "USD"),
+                ...(parsed.minPrice !== undefined
+                  ? {
+                      min: toMinorUnits(
+                        parsed.minPrice,
+                        parsed.currency ?? "USD",
+                      ),
+                    }
+                  : {}),
+                ...(parsed.maxPrice !== undefined
+                  ? {
+                      max: toMinorUnits(
+                        parsed.maxPrice,
+                        parsed.currency ?? "USD",
+                      ),
+                    }
+                  : {}),
               },
             }
-          : {}),
+          : parsed.targetPrice !== undefined
+            ? {
+                price: {
+                  max: toMinorUnits(
+                    parsed.targetPrice * 2,
+                    parsed.currency ?? "USD",
+                  ),
+                },
+              }
+            : {}),
       },
       pagination: { limit: parsed.limit },
     },

@@ -18,6 +18,11 @@ import {
 import { buildRecommendationQuery } from "@/lib/personalization/recommendation-engine";
 import type { ConnectionRecord } from "@/lib/shopify/connection";
 import { executePermittedTool } from "@/lib/tools/router";
+import {
+  authoritativeCommerceMessage,
+  serializeGenieToolResultForAi,
+} from "@/lib/ai/tool-payload";
+import { searchProductsSchema } from "@/lib/commerce/schemas";
 
 const tools: AiTool[] = [
   functionTool(
@@ -34,6 +39,33 @@ const tools: AiTool[] = [
           type: "number",
           description: "Optional maximum price in major currency units",
         },
+        minPrice: {
+          type: "number",
+          description: "Optional minimum price in major currency units",
+        },
+        targetPrice: {
+          type: "number",
+          description: "Soft preferred price in major currency units",
+        },
+        strict: {
+          type: "boolean",
+          description:
+            "True for hard price constraints; false for soft preference",
+        },
+        maxExclusive: {
+          type: "boolean",
+          description: "True when wording is under, below, or less than",
+        },
+        displayMode: {
+          type: "string",
+          enum: ["recommended", "expanded"],
+        },
+        requiredTerms: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Explicit color or category terms that every result must satisfy",
+        },
         currency: { type: "string", description: "ISO 4217 currency code" },
         country: {
           type: "string",
@@ -41,7 +73,6 @@ const tools: AiTool[] = [
         },
         limit: { type: "integer", minimum: 1, maximum: 10 },
       },
-      required: ["query"],
       additionalProperties: false,
     },
   ),
@@ -157,7 +188,9 @@ export async function runAiCommerceChat(input: {
               : "The commerce tool could not complete that request.",
         };
       }
-      const resultText = JSON.stringify(toolResult);
+      const resultText = JSON.stringify(
+        serializeGenieToolResultForAi(toolResult),
+      );
       return { value: toolResult, content: resultText };
     },
     onToolResult: async (call, toolResult, round) => {
@@ -174,10 +207,10 @@ export async function runAiCommerceChat(input: {
     },
   });
 
-  const message =
-    result.content ||
-    result.lastToolResult?.message ||
-    "I couldn't complete that shopping request.";
+  const message = authoritativeCommerceMessage(
+    result.content,
+    result.lastToolResult,
+  );
   const response: GenieResponse = {
     ...(result.lastToolResult ?? {
       conversationId: input.conversationId,
@@ -238,21 +271,7 @@ export function toolCallToAction(
   const value: unknown = JSON.parse(rawArguments || "{}");
   switch (name) {
     case "search_products": {
-      const parsed = z
-        .object({
-          query: z.string().min(1).max(300),
-          maxPrice: z.number().nonnegative().optional(),
-          currency: z
-            .string()
-            .regex(/^[A-Z]{3}$/)
-            .optional(),
-          country: z
-            .string()
-            .regex(/^[A-Z]{2}$/)
-            .optional(),
-          limit: z.number().int().min(1).max(10).default(6),
-        })
-        .parse(value);
+      const parsed = searchProductsSchema.parse(value);
       return { tool: "search_products", input: parsed };
     }
     case "get_product_details":

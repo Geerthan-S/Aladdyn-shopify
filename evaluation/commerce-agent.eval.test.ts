@@ -12,7 +12,14 @@ describe("commerce agent release evaluation", () => {
       ),
     ).toEqual({
       tool: "search_products",
-      input: { query: "black shirts", maxPrice: 2000, limit: 6 },
+      input: {
+        query: "black shirts",
+        maxPrice: 2000,
+        strict: true,
+        maxExclusive: false,
+        displayMode: "recommended",
+        limit: 6,
+      },
     });
   });
 

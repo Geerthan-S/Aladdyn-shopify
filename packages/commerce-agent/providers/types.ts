@@ -130,6 +130,7 @@ export type CommerceSession = {
 export type GenieToolName =
   | "search_products"
   | "recommend_products"
+  | "expand_results"
   | "get_product"
   | "view_cart"
   | "add_to_cart"
@@ -142,8 +143,18 @@ export type GenieResponse = {
   conversationId: string;
   message: string;
   tool: GenieToolName | null;
+  recommendation?: ProductRecommendation;
   products?: CommerceProduct[];
   cart?: CommerceCart;
   checkout?: CommerceCheckout;
   model?: string;
+};
+
+export type ProductDisplayMode = "recommended" | "expanded";
+
+export type ProductRecommendation = {
+  primary: CommerceProduct | null;
+  alternatives: CommerceProduct[];
+  totalMatches: number;
+  displayMode: ProductDisplayMode;
 };

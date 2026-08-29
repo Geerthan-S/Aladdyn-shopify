@@ -13,7 +13,10 @@ import type {
   CommerceCheckout,
   CommerceProduct,
   GenieResponse,
+  ProductRecommendation,
 } from "@commerce-agent/providers/types";
+import { formatCommerceMoney } from "@commerce-agent/money";
+import { productCardView } from "@commerce-agent/presentation/product-card";
 
 type ChatEntry = {
   id: string;
@@ -261,13 +264,19 @@ export function GenieChat({ store }: { store: string }) {
                 >
                   {entry.text}
                 </div>
-                {entry.response?.products && (
+                {entry.response?.recommendation ? (
+                  <RecommendationCards
+                    recommendation={entry.response.recommendation}
+                    rememberPurchase={rememberPurchase}
+                    send={send}
+                  />
+                ) : entry.response?.products ? (
                   <ProductCards
                     products={entry.response.products}
                     rememberPurchase={rememberPurchase}
                     send={send}
                   />
-                )}
+                ) : null}
                 {entry.response?.cart && (
                   <CartCard cart={entry.response.cart} send={send} />
                 )}
@@ -337,6 +346,9 @@ async function consumeChatStream(
         | { type: "error"; message: string };
       if (event.type === "text") text += event.text;
       if (event.type === "error") text = event.message;
+      if (event.type === "result" && event.response.message) {
+        text = event.response.message;
+      }
       setEntries((current) =>
         current.map((entry) =>
           entry.id === assistantId
@@ -371,73 +383,118 @@ function ProductCards({
 }) {
   return (
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-      {products.map((product) => (
-        <article
-          className="overflow-hidden rounded-xl border border-slate-200 bg-white"
-          key={product.productId}
-        >
-          {product.images[0] && (
-            <div
-              aria-label={product.images[0].altText ?? product.title}
-              className="h-32 bg-slate-100 bg-cover bg-center"
-              role="img"
-              style={{
-                backgroundImage: `url(${JSON.stringify(product.images[0].url)})`,
-              }}
-            />
-          )}
-          <div className="p-4">
-            <h3 className="font-semibold text-slate-950">{product.title}</h3>
-            <p className="mt-1 text-sm font-medium text-cyan-800">
-              {formatMoney(product.price.amountMinor, product.price.currency)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {product.availability === "available"
-                ? "Available"
-                : "Availability varies"}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold"
-                onClick={() =>
-                  void send(`View ${product.title}`, {
-                    tool: "get_product",
-                    input: { productId: product.productId },
-                  })
-                }
-              >
-                View
-              </button>
-              <button
-                className="rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-900"
-                onClick={() => void rememberPurchase(product)}
-              >
-                Bought before
-              </button>
-              {product.variants
-                .filter((variant) => variant.available)
-                .slice(0, 4)
-                .map((variant) => (
-                  <button
-                    className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
-                    key={variant.variantId}
-                    onClick={() =>
-                      void send(`Add ${variant.title}`, {
-                        tool: "add_to_cart",
-                        input: { variantId: variant.variantId, quantity: 1 },
-                      })
-                    }
-                  >
-                    Add{" "}
-                    {variant.title === "Default Title"
-                      ? "to cart"
-                      : variant.title}
-                  </button>
-                ))}
+      {products.map((product) => {
+        const card = productCardView(product);
+        return (
+          <article
+            className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+            key={product.productId}
+          >
+            {product.images[0] && (
+              <div
+                aria-label={product.images[0].altText ?? product.title}
+                className="h-32 bg-slate-100 bg-cover bg-center"
+                role="img"
+                style={{
+                  backgroundImage: `url(${JSON.stringify(product.images[0].url)})`,
+                }}
+              />
+            )}
+            <div className="p-4">
+              <h3 className="font-semibold text-slate-950">{card.title}</h3>
+              <p className="mt-1 text-sm font-medium text-cyan-800">
+                {card.price.display}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {card.availability === "available"
+                  ? "Available"
+                  : "Availability varies"}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold"
+                  onClick={() =>
+                    void send(`View ${product.title}`, {
+                      tool: "get_product",
+                      input: { productId: product.productId },
+                    })
+                  }
+                >
+                  View
+                </button>
+                <button
+                  className="rounded-lg border border-cyan-200 px-3 py-1.5 text-xs font-semibold text-cyan-900"
+                  onClick={() => void rememberPurchase(product)}
+                >
+                  Bought before
+                </button>
+                {product.variants
+                  .filter((variant) => variant.available)
+                  .slice(0, 4)
+                  .map((variant) => (
+                    <button
+                      className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
+                      key={variant.variantId}
+                      onClick={() =>
+                        void send(`Add ${variant.title}`, {
+                          tool: "add_to_cart",
+                          input: { variantId: variant.variantId, quantity: 1 },
+                        })
+                      }
+                    >
+                      Add{" "}
+                      {variant.title === "Default Title"
+                        ? "to cart"
+                        : variant.title}
+                    </button>
+                  ))}
+              </div>
             </div>
-          </div>
-        </article>
-      ))}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+export function RecommendationCards({
+  recommendation,
+  rememberPurchase,
+  send,
+}: {
+  recommendation: ProductRecommendation;
+  rememberPurchase: (product: CommerceProduct) => Promise<void>;
+  send: (text: string, action?: Action) => Promise<void>;
+}) {
+  if (!recommendation.primary) return null;
+  if (recommendation.displayMode === "expanded") {
+    return (
+      <ProductCards
+        products={[recommendation.primary, ...recommendation.alternatives]}
+        rememberPurchase={rememberPurchase}
+        send={send}
+      />
+    );
+  }
+  return (
+    <div>
+      <ProductCards
+        products={[recommendation.primary]}
+        rememberPurchase={rememberPurchase}
+        send={send}
+      />
+      {recommendation.alternatives.length > 0 && (
+        <>
+          <p className="mt-4 text-sm font-medium text-slate-700">
+            You can also have a look at these:
+          </p>
+          <ProductCards
+            products={recommendation.alternatives}
+            rememberPurchase={rememberPurchase}
+            send={send}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -473,10 +530,10 @@ function CartCard({
               <div className="flex items-center gap-2">
                 {line.price && (
                   <span>
-                    {formatMoney(
-                      line.price.amountMinor * line.quantity,
-                      line.price.currency,
-                    )}
+                    {formatCommerceMoney({
+                      amountMinor: line.price.amountMinor * line.quantity,
+                      currency: line.price.currency,
+                    })}
                   </span>
                 )}
                 <button
@@ -497,7 +554,7 @@ function CartCard({
       </div>
       {total && (
         <div className="mt-4 border-t border-slate-200 pt-3 text-right font-semibold">
-          Total: {formatMoney(total.amountMinor, total.currency)}
+          Total: {formatCommerceMoney(total)}
         </div>
       )}
       {cart.lines.length > 0 && (
@@ -521,7 +578,7 @@ function CheckoutCard({ checkout }: { checkout: CommerceCheckout }) {
       </div>
       {total && (
         <p className="mt-2 text-sm text-emerald-900">
-          Total: {formatMoney(total.amountMinor, total.currency)}
+          Total: {formatCommerceMoney(total)}
         </p>
       )}
       <a
@@ -534,15 +591,6 @@ function CheckoutCard({ checkout }: { checkout: CommerceCheckout }) {
       </a>
     </div>
   );
-}
-
-function formatMoney(amountMinor: number, currency: string) {
-  const formatter = new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-  });
-  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-  return formatter.format(amountMinor / 10 ** digits);
 }
 
 function majorUnits(amountMinor: number, currency: string) {

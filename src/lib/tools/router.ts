@@ -15,10 +15,12 @@ import type { ConnectionRecord } from "@/lib/shopify/connection";
 import { AppError } from "@/lib/shopify/errors";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { isPrototypeSchemaMissing } from "@/lib/prototype/schema";
+import { majorUnits } from "@commerce-agent/money";
 
 const ALLOWED_TOOLS = new Set<ExplicitAction["tool"]>([
   "search_products",
   "recommend_products",
+  "expand_results",
   "get_product",
   "view_cart",
   "add_to_cart",
@@ -135,7 +137,7 @@ function eventForAction(action: ExplicitAction, result: GenieResponse) {
           productId: action.input.productId,
           productTitle: common?.title,
           category: common?.productType,
-          price: common ? common.price.amountMinor / 100 : undefined,
+          price: common ? majorUnits(common.price) : undefined,
           currency: common?.price.currency,
         },
       };

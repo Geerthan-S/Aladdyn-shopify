@@ -2,14 +2,53 @@ import { describe, expect, it } from "vitest";
 import { inferDeterministicAction } from "@/lib/commerce/tool-router";
 
 describe("deterministic commerce routing", () => {
-  it("turns a generic budget request into a Shopify price-only search", () => {
-    expect(inferDeterministicAction("Show me products under ₹2000")).toEqual({
+  it.each([
+    "products under 2k",
+    "products under ₹2k",
+    "products below 2000",
+    "products less than 2,000",
+  ])("parses %s as a strict INR 2000 ceiling", (message) => {
+    expect(inferDeterministicAction(message)).toEqual({
       tool: "search_products",
       input: {
         maxPrice: 2000,
+        strict: true,
+        maxExclusive: true,
+        displayMode: "recommended",
         currency: "INR",
         country: "IN",
-        limit: 6,
+        limit: 10,
+      },
+    });
+  });
+
+  it("treats around 2k as a soft target", () => {
+    expect(inferDeterministicAction("products around 2k")).toEqual({
+      tool: "search_products",
+      input: {
+        targetPrice: 2000,
+        strict: false,
+        maxExclusive: false,
+        displayMode: "recommended",
+        currency: "INR",
+        country: "IN",
+        limit: 10,
+      },
+    });
+  });
+
+  it("parses an inclusive price range", () => {
+    expect(inferDeterministicAction("products between 500 and 1000")).toEqual({
+      tool: "search_products",
+      input: {
+        minPrice: 500,
+        maxPrice: 1000,
+        strict: true,
+        maxExclusive: false,
+        displayMode: "recommended",
+        currency: "INR",
+        country: "IN",
+        limit: 10,
       },
     });
   });
@@ -21,11 +60,28 @@ describe("deterministic commerce routing", () => {
       tool: "search_products",
       input: {
         query: "red skateboards",
+        requiredTerms: ["red", "skateboards"],
         maxPrice: 3000,
+        strict: true,
+        maxExclusive: true,
+        displayMode: "recommended",
         currency: "INR",
         country: "IN",
-        limit: 6,
+        limit: 10,
       },
+    });
+  });
+
+  it("only expands when the shopper explicitly asks", () => {
+    expect(
+      inferDeterministicAction("show all products under 2k"),
+    ).toMatchObject({
+      tool: "search_products",
+      input: { displayMode: "expanded", maxPrice: 2000 },
+    });
+    expect(inferDeterministicAction("show more")).toEqual({
+      tool: "expand_results",
+      input: {},
     });
   });
 

@@ -28,6 +28,7 @@ import type {
   CommerceCheckout,
   CommerceProduct,
 } from "@commerce-agent/providers/types";
+import { buildProductDiscovery } from "@commerce-agent/recommendation/discovery";
 
 export async function createCommerceOrchestrator(input: {
   userId: string;
@@ -43,17 +44,36 @@ export async function createCommerceOrchestrator(input: {
     capabilities: provider.capabilities(),
   });
 
-  async function searchProducts(raw: unknown) {
-    const products = await provider.searchProducts(
-      searchProductsSchema.parse(raw),
-    );
+  async function discoverProducts(raw: unknown) {
+    const constraints = searchProductsSchema.parse(raw);
+    const candidates = await provider.searchProducts({
+      ...constraints,
+      limit: 10,
+    });
+    const discovery = buildProductDiscovery(candidates, constraints);
     await saveSearchContext({
       userId: input.userId,
       sessionId: session.id,
-      products,
+      products: discovery.matchingProducts,
     });
-    session = { ...session, lastProducts: products, lastVariantId: null };
-    return products;
+    session = {
+      ...session,
+      lastProducts: discovery.matchingProducts,
+      lastVariantId: null,
+    };
+    return discovery;
+  }
+
+  async function searchProducts(raw: unknown) {
+    return (await discoverProducts(raw)).visibleProducts;
+  }
+
+  function expandProducts() {
+    return buildProductDiscovery(session.lastProducts, {
+      query: "previous matching products",
+      displayMode: "expanded",
+      strict: false,
+    });
   }
 
   async function getProduct(productId: string) {
@@ -260,6 +280,8 @@ export async function createCommerceOrchestrator(input: {
       return session;
     },
     searchProducts,
+    discoverProducts,
+    expandProducts,
     getProduct,
     viewCart,
     addToCart,

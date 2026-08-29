@@ -7,6 +7,7 @@ import {
 } from "@/lib/commerce/orchestrator";
 import type { GenieResponse } from "@commerce-agent/providers/types";
 import type { ExplicitAction } from "@commerce-agent/tools/actions";
+import type { ProductDiscovery } from "@commerce-agent/recommendation/discovery";
 export type { ExplicitAction } from "@commerce-agent/tools/actions";
 
 const injectionSignals = [
@@ -119,26 +120,90 @@ export function inferDeterministicAction(
   ) {
     return { tool: "checkout", input: {} };
   }
+  if (
+    /^(?:show more|more options|what else|show everything)\??$/i.test(
+      normalized,
+    )
+  ) {
+    return { tool: "expand_results", input: {} };
+  }
 
-  const search = normalized.match(
-    /^(?:show|find|search|look for)(?: me)?\s+(.+)$/i,
+  const displayMode =
+    /\b(?:show all|show everything|list all|more options|show more|what else)\b/i.test(
+      normalized,
+    )
+      ? "expanded"
+      : "recommended";
+  const between = normalized.match(
+    /\bbetween\s*(?:₹|rs\.?|inr\s*)?([\d,.]+)\s*(k)?\s+(?:and|to)\s*(?:₹|rs\.?|inr\s*)?([\d,.]+)\s*(k)?/i,
   );
-  if (!search) return null;
-  const maxPrice = parseMaxPrice(normalized);
-  const cleanedQuery = search[1]
-    .replace(/\s+under\s+(?:₹|rs\.?|inr\s*)?[\d,.]+.*$/i, "")
+  const upperBound = normalized.match(
+    /\b(?:under|below|less\s+than)\s*(?:₹|rs\.?|inr\s*)?([\d,.]+)\s*(k)?/i,
+  );
+  const around = normalized.match(
+    /\baround\s*(?:₹|rs\.?|inr\s*)?([\d,.]+)\s*(k)?/i,
+  );
+  const hasSearchLanguage =
+    /^(?:show|find|search|look for|list)(?: me)?\b/i.test(normalized) ||
+    /\b(?:products?|items?|options?)\b/i.test(normalized);
+  if (!hasSearchLanguage && !between && !upperBound && !around) return null;
+
+  const minPrice = between ? parsePrice(between[1], between[2]) : undefined;
+  const maxPrice = between
+    ? parsePrice(between[3], between[4])
+    : upperBound
+      ? parsePrice(upperBound[1], upperBound[2])
+      : undefined;
+  const targetPrice = around ? parsePrice(around[1], around[2]) : undefined;
+  const cleanedQuery = normalized
+    .replace(
+      /\bbetween\s*(?:₹|rs\.?|inr\s*)?[\d,.]+\s*k?\s+(?:and|to)\s*(?:₹|rs\.?|inr\s*)?[\d,.]+\s*k?/gi,
+      " ",
+    )
+    .replace(
+      /\b(?:under|below|less\s+than|around)\s*(?:₹|rs\.?|inr\s*)?[\d,.]+\s*k?/gi,
+      " ",
+    )
+    .replace(
+      /^(?:show|find|search|look for|list)(?: me)?\s+(?:(?:all|more|everything)\s+)?/i,
+      "",
+    )
+    .replace(
+      /\b(?:show all|show everything|list all|more options|show more|what else)\b/gi,
+      " ",
+    )
+    .replace(/\s+/g, " ")
     .trim();
-  const query = /^(?:(?:all|any|some)\s+)?products?$/i.test(cleanedQuery)
+  const query = /^(?:(?:all|any|some)\s+)?(?:products?|items?|options?)$/i.test(
+    cleanedQuery,
+  )
     ? undefined
-    : cleanedQuery;
-  if (!query && maxPrice === undefined) return null;
+    : cleanedQuery || undefined;
+  const requiredTerms = query ? extractRequiredTerms(query) : [];
+  if (
+    !query &&
+    minPrice === undefined &&
+    maxPrice === undefined &&
+    targetPrice === undefined
+  ) {
+    return displayMode === "expanded"
+      ? { tool: "expand_results", input: {} }
+      : null;
+  }
   return {
     tool: "search_products",
     input: {
       ...(query ? { query } : {}),
-      ...(maxPrice !== undefined ? { maxPrice, currency: "INR" } : {}),
+      ...(requiredTerms.length ? { requiredTerms } : {}),
+      ...(minPrice !== undefined ? { minPrice } : {}),
+      ...(maxPrice !== undefined ? { maxPrice } : {}),
+      ...(targetPrice !== undefined ? { targetPrice } : {}),
+      strict: targetPrice === undefined,
+      maxExclusive: Boolean(upperBound),
+      displayMode,
+      currency: "INR",
       country: "IN",
-      limit: 6,
+      limit: 10,
     },
   };
 }
@@ -150,26 +215,28 @@ async function executeAction(
 ): Promise<GenieResponse> {
   switch (action.tool) {
     case "search_products": {
-      const products = await commerce.searchProducts(action.input);
-      return {
-        conversationId: input.conversationId,
-        tool: action.tool,
-        message: products.length
-          ? `I found ${products.length} product${products.length === 1 ? "" : "s"} in this store.`
-          : "I couldn't find a matching product in this store.",
-        products,
-      };
+      const discovery = await commerce.discoverProducts(action.input);
+      return createRecommendationResponse(
+        input.conversationId,
+        action.tool,
+        discovery,
+      );
     }
     case "recommend_products": {
-      const products = await commerce.searchProducts(action.input);
-      return {
-        conversationId: input.conversationId,
-        tool: action.tool,
-        message: products.length
-          ? `I found ${products.length} personalized option${products.length === 1 ? "" : "s"}.`
-          : "I couldn't find an available match for those preferences.",
-        products,
-      };
+      const discovery = await commerce.discoverProducts(action.input);
+      return createRecommendationResponse(
+        input.conversationId,
+        action.tool,
+        discovery,
+      );
+    }
+    case "expand_results": {
+      const discovery = commerce.expandProducts();
+      return createRecommendationResponse(
+        input.conversationId,
+        action.tool,
+        discovery,
+      );
     }
     case "get_product": {
       const product = await commerce.getProduct(action.input.productId);
@@ -243,6 +310,26 @@ async function executeAction(
   }
 }
 
+export function createRecommendationResponse(
+  conversationId: string,
+  tool: "search_products" | "recommend_products" | "expand_results",
+  discovery: ProductDiscovery,
+): GenieResponse {
+  const { recommendation, visibleProducts } = discovery;
+  const message = recommendation.primary
+    ? recommendation.displayMode === "expanded"
+      ? `Here are ${visibleProducts.length} matching products.`
+      : "I think this one is worth checking out first 👇"
+    : "I couldn't find a matching product in this store.";
+  return {
+    conversationId,
+    tool,
+    message,
+    recommendation,
+    products: visibleProducts,
+  };
+}
+
 function cartResponse(
   conversationId: string,
   tool: GenieResponse["tool"],
@@ -265,9 +352,39 @@ function ordinalIndex(value: string) {
   return words[value.toLowerCase()] ?? Number(value) - 1;
 }
 
-function parseMaxPrice(message: string) {
-  const match = message.match(/\bunder\s+(?:₹|rs\.?|inr\s*)?([\d,.]+)/i);
-  if (!match) return undefined;
-  const amount = Number(match[1].replaceAll(",", ""));
-  return Number.isFinite(amount) ? amount : undefined;
+function parsePrice(value: string, thousandsSuffix?: string) {
+  const amount = Number(value.replaceAll(",", ""));
+  if (!Number.isFinite(amount)) return undefined;
+  return amount * (thousandsSuffix ? 1000 : 1);
+}
+
+function extractRequiredTerms(query: string) {
+  const ignored = new Set([
+    "a",
+    "all",
+    "an",
+    "any",
+    "color",
+    "colored",
+    "for",
+    "item",
+    "items",
+    "me",
+    "option",
+    "options",
+    "please",
+    "product",
+    "products",
+    "some",
+    "something",
+    "the",
+  ]);
+  return [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((term) => term.length > 1 && !ignored.has(term)),
+    ),
+  ].slice(0, 8);
 }

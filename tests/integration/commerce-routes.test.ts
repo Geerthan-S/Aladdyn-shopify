@@ -114,7 +114,7 @@ describe("authenticated Genie chat route", () => {
   it("streams natural-language AI responses as newline-delimited events", async () => {
     const { POST } = await import("@/app/api/chat/route");
     const response = await POST(
-      chatRequest("Find black shirts", undefined, true),
+      chatRequest("What black shirt would suit me?", undefined, true),
     );
     const body = await response.text();
     expect(response.headers.get("content-type")).toContain(
@@ -130,14 +130,17 @@ describe("authenticated Genie chat route", () => {
       tool: "search_products",
       input: {
         maxPrice: 2000,
+        strict: true,
+        maxExclusive: true,
+        displayMode: "recommended",
         currency: "INR",
         country: "IN",
-        limit: 6,
+        limit: 10,
       },
     });
     const { POST } = await import("@/app/api/chat/route");
     const response = await POST(
-      chatRequest("Show me products under ₹2000", undefined, true),
+      chatRequest("products under 2k", undefined, true),
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");

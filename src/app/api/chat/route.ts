@@ -111,9 +111,7 @@ function streamChat(input: Parameters<typeof runAiCommerceChat>[0]): Response {
           );
         }
         controller.enqueue(
-          encoder.encode(
-            `${JSON.stringify({ type: "result", response: { ...response, message: "" } })}\n`,
-          ),
+          encoder.encode(`${JSON.stringify({ type: "result", response })}\n`),
         );
       } catch (error) {
         const message =

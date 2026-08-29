@@ -9,6 +9,7 @@ import {
   getShopifyCheckout,
 } from "@shopify-adapter/ucp/checkout";
 import type { ShopifyMcpClient } from "@shopify-adapter/ucp/mcp-client";
+import { searchShopifyCatalog } from "@shopify-adapter/ucp/catalog";
 import type { AuthoritativeCartState } from "@commerce-agent/providers/types";
 
 const merchant = "test.myshopify.com";
@@ -28,6 +29,30 @@ const state: AuthoritativeCartState = {
     activity_id_value: "conversation-1",
   },
 };
+
+describe("Shopify UCP catalog tool mapping", () => {
+  it("converts major-unit hard constraints to explicit UCP minor units", async () => {
+    const client = mockClient({ products: [] });
+    await searchShopifyCatalog(client, merchant, {
+      minPrice: 500,
+      maxPrice: 2000,
+      currency: "INR",
+      country: "IN",
+      strict: true,
+      limit: 10,
+    });
+    expect(client.call).toHaveBeenCalledWith("search_catalog", {
+      catalog: expect.objectContaining({
+        context: { currency: "INR", address_country: "IN" },
+        filters: {
+          available: true,
+          price: { min: 50000, max: 200000 },
+        },
+        pagination: { limit: 10 },
+      }),
+    });
+  });
+});
 
 describe("Shopify UCP cart tool mapping", () => {
   it("creates a cart with the complete authoritative state", async () => {

@@ -9,6 +9,7 @@ import type {
   CommerceProduct,
   CommerceVariant,
 } from "@commerce-agent/providers/types";
+import { assertCommerceMoney } from "@commerce-agent/money";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -45,10 +46,12 @@ function plainText(value: unknown) {
 
 function money(value: unknown, fallbackCurrency = "USD"): CommerceMoney {
   const item = record(value);
-  return {
+  const normalized = {
     amountMinor: integer(item.amount),
     currency: string(item.currency, fallbackCurrency).toUpperCase(),
   };
+  if (process.env.NODE_ENV !== "production") assertCommerceMoney(normalized);
+  return normalized;
 }
 
 function image(value: unknown): CommerceImage | null {

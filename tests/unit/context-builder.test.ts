@@ -157,6 +157,10 @@ describe("AI context builder", () => {
     const context = JSON.parse(result.systemContext);
     expect(context.intent).toBe("merchant_policy");
     expect(context.products[0].name).toBe("Black Runner");
+    expect(context.products[0].price).toMatchObject({
+      amount: "1800.00",
+      currencyCode: "INR",
+    });
     expect(context.products[0].warning).toMatch(/verify live facts/i);
     expect(context.merchant_rules[0].type).toBe("RETURNS");
     expect(context.customer_profile.behaviour.previousPurchases).toEqual([

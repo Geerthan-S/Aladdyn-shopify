@@ -1,6 +1,7 @@
 export type ExplicitAction =
   | { tool: "search_products"; input: Record<string, unknown> }
   | { tool: "recommend_products"; input: Record<string, unknown> }
+  | { tool: "expand_results"; input: Record<string, never> }
   | { tool: "get_product"; input: { productId: string } }
   | { tool: "view_cart"; input: Record<string, never> }
   | { tool: "add_to_cart"; input: { variantId: string; quantity: number } }
