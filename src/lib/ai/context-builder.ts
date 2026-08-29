@@ -5,16 +5,19 @@ import { AppError } from "@/lib/shopify/errors";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { detectCommerceIntent, type CommerceIntent } from "@/lib/ai/intent";
 import { assembleCommerceContext } from "@commerce-agent/context/builder";
+import { createShopifyCommerceProvider } from "@shopify-adapter";
+import type { CommerceProduct } from "@commerce-agent/providers/types";
 import { retrieveKnowledge } from "@/lib/knowledge";
 import { retrieveProducts } from "@/lib/knowledge/products";
 import {
   buildPreferenceProfile,
   getCustomerHistory,
 } from "@/lib/personalization/events";
+import { isPrototypeSchemaMissing } from "@/lib/prototype/schema";
 
 export type ConversationContext = {
-  storeId: string;
-  conversationDbId: string;
+  storeId: string | null;
+  conversationDbId: string | null;
   customerKey: string;
   intent: CommerceIntent;
   systemContext: string;
@@ -54,7 +57,12 @@ export async function buildConversationContext(input: {
       "id,name,currency_code,sync_status,sync_product_count,last_synced_at",
     )
     .single();
-  if (storeError || !store) throw prototypeMigrationError();
+  if (storeError || !store) {
+    if (isPrototypeSchemaMissing(storeError)) {
+      return buildLivePrototypeContext(input, customerKey);
+    }
+    throw prototypeMigrationError();
+  }
 
   const { data: conversation, error: conversationError } = await admin
     .from("conversations")
@@ -70,7 +78,12 @@ export async function buildConversationContext(input: {
     )
     .select("id")
     .single();
-  if (conversationError || !conversation) throw prototypeMigrationError();
+  if (conversationError || !conversation) {
+    if (isPrototypeSchemaMissing(conversationError)) {
+      return buildLivePrototypeContext(input, customerKey);
+    }
+    throw prototypeMigrationError();
+  }
 
   const [{ data: messageRows }, { data: profileRow }] = await Promise.all([
     admin
@@ -198,7 +211,7 @@ async function safe<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 export async function saveConversationMessage(input: {
-  conversationDbId: string;
+  conversationDbId: string | null;
   clientMessageId?: string;
   role: "user" | "assistant" | "tool";
   content: string;
@@ -206,6 +219,7 @@ export async function saveConversationMessage(input: {
   generatedContext?: unknown;
   model?: string | null;
 }) {
+  if (!input.conversationDbId) return;
   const admin = createAdminSupabase();
   const { error } = await admin.from("messages").upsert(
     {
@@ -220,6 +234,96 @@ export async function saveConversationMessage(input: {
     { onConflict: "conversation_id,client_message_id" },
   );
   if (error) throw prototypeMigrationError();
+}
+
+async function buildLivePrototypeContext(
+  input: {
+    connection: ConnectionRecord;
+    conversationId: string;
+    message: string;
+    customerKey?: string;
+  },
+  customerKey: string,
+): Promise<ConversationContext> {
+  const intent = detectCommerceIntent(input.message);
+  const profile = emptyProfile();
+  const products = await safe(async () => {
+    const provider = await createShopifyCommerceProvider(
+      input.connection.shop_domain,
+    );
+    return provider.searchProducts({
+      query: input.message,
+      currency: "INR",
+      country: "IN",
+      limit: 6,
+    });
+  }, [] as CommerceProduct[]);
+  const context = assembleCommerceContext({
+    intent,
+    explicitProfile: profile,
+    effectiveProfile: profile,
+    behaviorProfile: { source: "prototype_live_shopify_fallback" },
+    purchaseHistoryAuthorized: false,
+    products: products.map((product) => ({
+      productId: product.productId,
+      name: product.title,
+      category: product.productType,
+      description: product.description,
+      colors: product.variants
+        .flatMap((variant) => variant.options)
+        .filter((option) => option.name.toLowerCase() === "color")
+        .map((option) => option.value),
+      sizes: product.variants
+        .flatMap((variant) => variant.options)
+        .filter((option) => option.name.toLowerCase() === "size")
+        .map((option) => option.value),
+      priceMin: product.price.amountMinor / 100,
+      priceMax: product.price.amountMinor / 100,
+      currency: product.price.currency,
+      indexedAvailability: product.availability,
+      warning: "Live Shopify fallback candidate; verify details with tools.",
+    })),
+    merchantRules: [],
+    recentMessages: [],
+    availableTools: [
+      "search_products",
+      "get_product_details",
+      "recommend_products",
+      "create_cart",
+      "view_cart",
+      "checkout",
+    ],
+    store: {
+      name: input.connection.shop_name ?? input.connection.shop_domain,
+      domain: input.connection.shop_domain,
+      currency: products[0]?.price.currency ?? "unknown",
+      syncStatus: "prototype_live_shopify_fallback",
+      syncedProductCount: products.length,
+      lastSyncedAt: null,
+      note: "Database migration 003 is not applied, so this request is using live Shopify catalog fallback.",
+    },
+    checkoutMode: "secure_shopify_handoff",
+  });
+
+  return {
+    storeId: null,
+    conversationDbId: null,
+    customerKey,
+    intent,
+    systemContext: JSON.stringify(context),
+    recentMessages: [],
+    profile,
+  };
+}
+
+function emptyProfile() {
+  return {
+    preferredCategories: [],
+    preferredColors: [],
+    preferredSizes: [],
+    budgetMin: null,
+    budgetMax: null,
+  };
 }
 
 function prototypeMigrationError() {

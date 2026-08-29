@@ -144,7 +144,7 @@ export async function runAiCommerceChat(input: {
           messageId: `${input.messageId}-${round}-${call.id}`.slice(0, 120),
           message: input.message,
           customerKey: context.customerKey,
-          expectedStoreId: context.storeId,
+          expectedStoreId: context.storeId ?? undefined,
           action,
         });
       } catch (error) {
@@ -198,17 +198,19 @@ export async function runAiCommerceChat(input: {
     },
     model: result.model || null,
   });
-  void updateCustomerProfile({
-    storeId: context.storeId,
-    customerKey: context.customerKey,
-    current: context.profile,
-    recentConversation: [
-      ...context.recentMessages,
-      { role: "user" as const, content: input.message },
-    ]
-      .map((item) => `${item.role}: ${item.content}`)
-      .join("\n"),
-  });
+  if (context.storeId) {
+    void updateCustomerProfile({
+      storeId: context.storeId,
+      customerKey: context.customerKey,
+      current: context.profile,
+      recentConversation: [
+        ...context.recentMessages,
+        { role: "user" as const, content: input.message },
+      ]
+        .map((item) => `${item.role}: ${item.content}`)
+        .join("\n"),
+    });
+  }
   return response;
 }
 

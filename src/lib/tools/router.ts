@@ -14,6 +14,7 @@ import {
 import type { ConnectionRecord } from "@/lib/shopify/connection";
 import { AppError } from "@/lib/shopify/errors";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { isPrototypeSchemaMissing } from "@/lib/prototype/schema";
 
 const ALLOWED_TOOLS = new Set<ExplicitAction["tool"]>([
   "search_products",
@@ -53,7 +54,7 @@ export async function executePermittedTool(input: {
     action,
   });
   const event = eventForAction(action, result);
-  if (event) {
+  if (event && storeId) {
     void trackEvent({
       storeId,
       customerId: input.customerKey,
@@ -95,7 +96,7 @@ async function authorizedStoreId(
   userId: string,
   connectionId: string,
   expectedStoreId?: string,
-) {
+): Promise<string | null> {
   const admin = createAdminSupabase();
   let query = admin
     .from("stores")
@@ -104,6 +105,7 @@ async function authorizedStoreId(
     .eq("connection_id", connectionId);
   if (expectedStoreId) query = query.eq("id", expectedStoreId);
   const { data, error } = await query.maybeSingle();
+  if (error && isPrototypeSchemaMissing(error)) return null;
   if (error || !data) {
     throw new AppError(
       "SHOP_ACCESS_DENIED",
