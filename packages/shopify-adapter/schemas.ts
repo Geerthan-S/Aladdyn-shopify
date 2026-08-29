@@ -26,13 +26,20 @@ export const quantitySchema = z.number().int().min(0).max(100);
 export const currencySchema = z.string().regex(/^[A-Z]{3}$/);
 export const countrySchema = z.string().regex(/^[A-Z]{2}$/);
 
-export const searchProductsSchema = z.object({
-  query: z.string().trim().min(1).max(300),
-  maxPrice: z.number().nonnegative().max(10_000_000).optional(),
-  currency: currencySchema.optional(),
-  country: countrySchema.optional(),
-  limit: z.number().int().min(1).max(10).default(6),
-});
+export const searchProductsSchema = z
+  .object({
+    query: z.string().trim().min(1).max(300).optional(),
+    maxPrice: z.number().nonnegative().max(10_000_000).optional(),
+    currency: currencySchema.optional(),
+    country: countrySchema.optional(),
+    limit: z.number().int().min(1).max(10).default(6),
+  })
+  .refine(
+    (input) => input.query !== undefined || input.maxPrice !== undefined,
+    {
+      message: "Provide a product query or price filter",
+    },
+  );
 
 const versionedEntitySchema = z.object({ version: z.string() }).passthrough();
 const serviceSchema = versionedEntitySchema.extend({

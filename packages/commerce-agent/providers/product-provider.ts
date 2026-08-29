@@ -1,7 +1,7 @@
 import type { CommerceProduct } from "@commerce-agent/providers/types";
 
 export type ProductSearchInput = {
-  query: string;
+  query?: string;
   maxPrice?: number;
   currency?: string;
   country?: string;

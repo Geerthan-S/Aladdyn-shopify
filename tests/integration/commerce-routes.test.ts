@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   enforceRateLimit: vi.fn(),
   getConnectionForUser: vi.fn(),
   routeGenieMessage: vi.fn(),
+  inferDeterministicAction: vi.fn(),
+  executePermittedTool: vi.fn(),
   runAiCommerceChat: vi.fn(),
   discoverCommerceCapabilities: vi.fn(),
   getShopifyAgentToken: vi.fn(),
@@ -24,6 +26,10 @@ vi.mock("@/lib/shopify/connection", () => ({
 }));
 vi.mock("@/lib/commerce/tool-router", () => ({
   routeGenieMessage: mocks.routeGenieMessage,
+  inferDeterministicAction: mocks.inferDeterministicAction,
+}));
+vi.mock("@/lib/tools/router", () => ({
+  executePermittedTool: mocks.executePermittedTool,
 }));
 vi.mock("@/lib/ai/chatbot", () => ({
   runAiCommerceChat: mocks.runAiCommerceChat,
@@ -61,6 +67,13 @@ beforeEach(() => {
   mocks.routeGenieMessage.mockResolvedValue({
     conversationId: "conversation-1",
     message: "Found one product",
+    tool: "search_products",
+    products: [],
+  });
+  mocks.inferDeterministicAction.mockReturnValue(null);
+  mocks.executePermittedTool.mockResolvedValue({
+    conversationId: "conversation-1",
+    message: "Found six products",
     tool: "search_products",
     products: [],
   });
@@ -110,6 +123,33 @@ describe("authenticated Genie chat route", () => {
     expect(body).toContain('"type":"text"');
     expect(body).toContain('"type":"result"');
     expect(mocks.runAiCommerceChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes obvious catalog searches directly without an AI round trip", async () => {
+    mocks.inferDeterministicAction.mockReturnValueOnce({
+      tool: "search_products",
+      input: {
+        maxPrice: 2000,
+        currency: "INR",
+        country: "IN",
+        limit: 6,
+      },
+    });
+    const { POST } = await import("@/app/api/chat/route");
+    const response = await POST(
+      chatRequest("Show me products under ₹2000", undefined, true),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(mocks.executePermittedTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: {
+          tool: "search_products",
+          input: expect.objectContaining({ maxPrice: 2000 }),
+        },
+      }),
+    );
+    expect(mocks.runAiCommerceChat).not.toHaveBeenCalled();
   });
 
   it("rejects an unauthenticated shopper before invoking tools", async () => {

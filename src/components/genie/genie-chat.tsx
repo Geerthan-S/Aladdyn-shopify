@@ -73,8 +73,12 @@ export function GenieChat({ store }: { store: string }) {
           stream: !action,
           ...(action ? { action } : {}),
         }),
+        signal: AbortSignal.timeout(60_000),
       });
-      if (!action && response.ok && response.body) {
+      const isChatStream = response.headers
+        .get("content-type")
+        ?.includes("application/x-ndjson");
+      if (!action && response.ok && response.body && isChatStream) {
         const assistantId = crypto.randomUUID();
         setEntries((current) => [
           ...current,
@@ -102,7 +106,11 @@ export function GenieChat({ store }: { store: string }) {
           id: crypto.randomUUID(),
           role: "assistant",
           text:
-            reason instanceof Error ? reason.message : "Genie is unavailable",
+            reason instanceof DOMException && reason.name === "TimeoutError"
+              ? "Shopify took too long to respond. Please try again."
+              : reason instanceof Error
+                ? reason.message
+                : "Genie is unavailable",
         },
       ]);
     } finally {
@@ -189,19 +197,33 @@ export function GenieChat({ store }: { store: string }) {
           <div className="mt-6 space-y-2 text-sm text-slate-300">
             <button
               className="w-full rounded-lg bg-white/5 px-3 py-2 text-left hover:bg-white/10"
-              onClick={() => void send("Show me products under ₹2000")}
+              onClick={() =>
+                void send("Show me products under ₹2000", {
+                  tool: "search_products",
+                  input: {
+                    maxPrice: 2000,
+                    currency: "INR",
+                    country: "IN",
+                    limit: 6,
+                  },
+                })
+              }
             >
               Find products
             </button>
             <button
               className="w-full rounded-lg bg-white/5 px-3 py-2 text-left hover:bg-white/10"
-              onClick={() => void send("Show my cart")}
+              onClick={() =>
+                void send("Show my cart", { tool: "view_cart", input: {} })
+              }
             >
               View cart
             </button>
             <button
               className="w-full rounded-lg bg-white/5 px-3 py-2 text-left hover:bg-white/10"
-              onClick={() => void send("Checkout")}
+              onClick={() =>
+                void send("Checkout", { tool: "checkout", input: {} })
+              }
             >
               Checkout
             </button>

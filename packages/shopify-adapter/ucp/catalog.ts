@@ -19,7 +19,7 @@ export async function searchShopifyCatalog(
   const parsed = searchProductsSchema.parse(input);
   const result = await client.call<unknown>("search_catalog", {
     catalog: {
-      query: parsed.query,
+      ...(parsed.query ? { query: parsed.query } : {}),
       context: {
         ...(parsed.currency ? { currency: parsed.currency } : {}),
         ...(parsed.country ? { address_country: parsed.country } : {}),

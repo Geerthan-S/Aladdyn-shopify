@@ -37,21 +37,9 @@ export async function routeGenieMessage(input: {
   }
 
   const message = input.message.trim();
-  if (/^(show|view) (me )?(my |the )?cart\b/i.test(message)) {
-    return executeAction(commerce, input, { tool: "view_cart", input: {} });
-  }
-  if (/^(checkout status|status of (my )?checkout)\b/i.test(message)) {
-    return executeAction(commerce, input, {
-      tool: "get_checkout_status",
-      input: {},
-    });
-  }
-  if (
-    /^(checkout|check out|buy now|i(?:'m| am) ready to (?:buy|checkout))\b/i.test(
-      message,
-    )
-  ) {
-    return executeAction(commerce, input, { tool: "checkout", input: {} });
+  const deterministicAction = inferDeterministicAction(message);
+  if (deterministicAction) {
+    return executeAction(commerce, input, deterministicAction);
   }
 
   const ordinal = message.match(
@@ -106,30 +94,53 @@ export async function routeGenieMessage(input: {
     });
   }
 
-  const search = message.match(
-    /^(?:show|find|search|look for)(?: me)?\s+(.+)$/i,
-  );
-  if (search) {
-    const maxPrice = parseMaxPrice(message);
-    const query = search[1]
-      .replace(/\s+under\s+(?:₹|rs\.?|inr\s*)?[\d,.]+.*$/i, "")
-      .trim();
-    return executeAction(commerce, input, {
-      tool: "search_products",
-      input: {
-        query,
-        ...(maxPrice !== undefined ? { maxPrice, currency: "INR" } : {}),
-        country: "IN",
-        limit: 6,
-      },
-    });
-  }
-
   throw new CommerceError(
     "INVALID_COMMERCE_INPUT",
     "Try asking me to find a product, show your cart, add an option, or checkout.",
     400,
   );
+}
+
+export function inferDeterministicAction(
+  message: string,
+): ExplicitAction | null {
+  const normalized = message.trim();
+  if (injectionSignals.some((pattern) => pattern.test(normalized))) return null;
+  if (/^(show|view) (me )?(my |the )?cart\b/i.test(normalized)) {
+    return { tool: "view_cart", input: {} };
+  }
+  if (/^(checkout status|status of (my )?checkout)\b/i.test(normalized)) {
+    return { tool: "get_checkout_status", input: {} };
+  }
+  if (
+    /^(checkout|check out|buy now|i(?:'m| am) ready to (?:buy|checkout))\b/i.test(
+      normalized,
+    )
+  ) {
+    return { tool: "checkout", input: {} };
+  }
+
+  const search = normalized.match(
+    /^(?:show|find|search|look for)(?: me)?\s+(.+)$/i,
+  );
+  if (!search) return null;
+  const maxPrice = parseMaxPrice(normalized);
+  const cleanedQuery = search[1]
+    .replace(/\s+under\s+(?:₹|rs\.?|inr\s*)?[\d,.]+.*$/i, "")
+    .trim();
+  const query = /^(?:(?:all|any|some)\s+)?products?$/i.test(cleanedQuery)
+    ? undefined
+    : cleanedQuery;
+  if (!query && maxPrice === undefined) return null;
+  return {
+    tool: "search_products",
+    input: {
+      ...(query ? { query } : {}),
+      ...(maxPrice !== undefined ? { maxPrice, currency: "INR" } : {}),
+      country: "IN",
+      limit: 6,
+    },
+  };
 }
 
 async function executeAction(

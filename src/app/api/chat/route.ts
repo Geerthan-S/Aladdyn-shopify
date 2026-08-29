@@ -9,6 +9,7 @@ import {
 } from "@commerce-agent/tools/errors";
 import { chatRequestSchema } from "@/lib/commerce/schemas";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { inferDeterministicAction } from "@/lib/commerce/tool-router";
 import { getConnectionForUser } from "@/lib/shopify/connection";
 import { AppError, safeErrorResponse } from "@/lib/shopify/errors";
 import { executePermittedTool } from "@/lib/tools/router";
@@ -26,7 +27,8 @@ export async function POST(request: Request) {
         409,
       );
     }
-    if (parsed.stream && !parsed.action) {
+    const action = parsed.action ?? inferDeterministicAction(parsed.message);
+    if (parsed.stream && !action) {
       return streamChat({
         userId: user.id,
         connection,
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
         customerKey: parsed.customerKey,
       });
     }
-    const response = parsed.action
+    const response = action
       ? await executePermittedTool({
           userId: user.id,
           connection,
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
           messageId: parsed.messageId,
           message: parsed.message,
           customerKey: parsed.customerKey ?? `visitor:${parsed.conversationId}`,
-          action: parsed.action,
+          action,
         })
       : await runAiCommerceChat({
           userId: user.id,
